@@ -1,3 +1,9 @@
 {
-    "cmake.sourceDirectory": "C:/Users/avian/source/repos/RP Pico/blink"
+    "cmake.sourceDirectory": "C:/Users/avian/source/repos/RP Pico/G1P",
+    "cSpell.words": [
+        "EEPROM",
+        "hexlify",
+        "micropython"
+    ],
+    "micropico.syncFolder": "G1P"
 }

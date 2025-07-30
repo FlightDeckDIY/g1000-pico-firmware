@@ -1,113 +1,167 @@
-from machine import Pin, unique_id
 import time
 import sys
 import select
+import machine
 from binascii import hexlify
+from config import Pins, SerialConfig, ModeConfig
+from input_devices import InputManager
+from device import Device, LEDController
 
-
-# Pin definitions with internal pull-ups
-BUTTON_PIN = 28
-ENCODER_DT_PIN = 16
-ENCODER_CLK_PIN = 17
-ENCODER_BTN_PIN = 26
-
-# Command buffer
-command_buffer = ""
-
-class Button:
-    def __init__(self, pin_num):
-        self.pin = Pin(pin_num, Pin.IN, Pin.PULL_UP)
-        self.last_state = True
-        self.last_change = time.ticks_ms()
-        self.debounce_time = 50  # milliseconds
-
-    def is_pressed(self):
-        current_time = time.ticks_ms()
-        current_state = self.pin.value()
+class Application:
+    def __init__(self):
+        # Initialize device components
+        self.device = Device()
+        self.led = LEDController(Pins.LED_BACKLIGHT)
+        self.input_manager = InputManager()
         
-        if current_state != self.last_state and time.ticks_diff(current_time, self.last_change) > self.debounce_time:
-            self.last_change = current_time
-            self.last_state = current_state
-            return not current_state  # Return True when button is pressed (pin goes low)
-        return False
-
-class RotaryEncoder:
-    def __init__(self, dt_pin, clk_pin, btn_pin):
-        self.dt = Pin(dt_pin, Pin.IN, Pin.PULL_UP)
-        self.clk = Pin(clk_pin, Pin.IN, Pin.PULL_UP)
-        self.btn = Pin(btn_pin, Pin.IN, Pin.PULL_UP)
-        self.last_clk = self.clk.value()
-        self.last_btn_state = True
-        self.last_btn_change = time.ticks_ms()
-        self.position = 0
-
-    def read(self):
-        # Returns: (rotation_change, button_pressed)
-        rotation = 0
-        current_clk = self.clk.value()
+        # Command buffer for serial input
+        self.command_buffer = ""
         
-        if current_clk != self.last_clk:
-            if self.dt.value() != current_clk:
-                rotation = 1  # Clockwise
-            else:
-                rotation = -1  # Counter-clockwise
+        # Set up event handlers
+        self._setup_event_handlers()
         
-        self.last_clk = current_clk
+        # Initial LED state
+        self.led.enabled = True
+        self.led.brightness = 92  # 92% brightness
         
-        # Handle button press with debouncing
-        current_time = time.ticks_ms()
-        current_btn = self.btn.value()
-        button_pressed = False
+        print("\n=== G1P Controller Initialized ===")
+        print(f"Mode: {self.device.mode}")
         
-        if (current_btn != self.last_btn_state and 
-            time.ticks_diff(current_time, self.last_btn_change) > 50):
-            self.last_btn_change = current_time
-            self.last_btn_state = current_btn
-            if not current_btn:  # Button is pressed (goes low)
-                button_pressed = True
+    def _setup_event_handlers(self):
+        # Button press/release handlers
+        self.input_manager.on_button_press(self._handle_button_press)
+        self.input_manager.on_button_release(self._handle_button_release)
+        self.input_manager.on_long_press(self._handle_long_press)
+        self.input_manager.on_rotation(self._handle_rotation)
         
-        return rotation, button_pressed
-
-def check_for_command():
-    try:
-        poller = select.poll()
-        poller.register(sys.stdin, select.POLLIN)
-        if poller.poll(0):  # Check if there's data available (0 timeout)
-            line = sys.stdin.readline().strip()
-            if line == "deviceId":
-                id_hex = hexlify(unique_id()).decode('utf-8')
-                print(f"DEVICE_ID:{id_hex}\n")
-            elif line == "reset":
-                print("RESETTING...\n")
-                time.sleep(1)
-                sys.exit()
-            else:
-                print("You typed: ", line)
-    except (KeyboardInterrupt, AttributeError):
-        print("Exiting...")
-        sys.exit()
+        # Mode change handler
+        self.device.on_mode_change(self._handle_mode_change)
+    
+    def _handle_button_press(self, button_id):
+        """Handle button press events."""
+        # Check if this is the mode switch button
+        if button_id == ModeConfig.MODE_SWITCH_BUTTON:
+            # Mode switch is handled by long press
+            return
+            
+        # Send button press event
+        msg = SerialConfig.Messages.BUTTON.format(
+            prefix=SerialConfig.MSG_PREFIX,
+            id=button_id,
+            action="PRESS"
+        )
+        print(f"{msg}\n")
+    
+    def _handle_button_release(self, button_id):
+        """Handle button release events."""
+        # Don't send release events for the mode switch button
+        if button_id == ModeConfig.MODE_SWITCH_BUTTON:
+            return
+            
+        msg = SerialConfig.Messages.BUTTON.format(
+            prefix=SerialConfig.MSG_PREFIX,
+            id=button_id,
+            action="RELEASE"
+        )
+        print(f"{msg}\n")
+    
+    def _handle_long_press(self, button_id):
+        """Handle long press events."""
+        if button_id == ModeConfig.MODE_SWITCH_BUTTON:
+            # Toggle operating mode
+            self.device.toggle_mode()
+    
+    def _handle_rotation(self, encoder_id, direction, speed):
+        """Handle encoder rotation events."""
+        msg = SerialConfig.Messages.ROTARY.format(
+            prefix=SerialConfig.MSG_PREFIX,
+            id=encoder_id,
+            direction="CW" if direction > 0 else "CCW",
+            speed=speed
+        )
+        print(f"{msg}\n")
+    
+    def _handle_mode_change(self, new_mode):
+        """Handle mode change events."""
+        # Visual feedback for mode change
+        self.led.brightness = 100 if new_mode == 1 else 50
+        
+        # Send mode change event
+        msg = SerialConfig.Messages.MODE_CHANGE.format(
+            prefix=SerialConfig.MSG_PREFIX,
+            mode=new_mode
+        )
+        print(f"{msg}\n")
+    
+    def check_serial_commands(self):
+        """Check for incoming serial commands."""
+        try:
+            poller = select.poll()
+            poller.register(sys.stdin, select.POLLIN)
+            
+            if poller.poll(0):  # Check if there's data available (0 timeout)
+                line = sys.stdin.readline().strip()
+                
+                if line == "deviceId":
+                    # Return the device ID
+                    id_hex = hexlify(machine.unique_id()).decode('utf-8')
+                    print(f"DEVICE_ID:{id_hex}\n")
+                
+                elif line == "reset":
+                    # Reset the device
+                    print("RESETTING...\n")
+                    time.sleep(1)
+                    machine.reset()
+                
+                elif line.startswith("led="):
+                    # Control the LED: led=on/off or led=50 (0-100%)
+                    try:
+                        value = line[4:].lower()
+                        if value == "on":
+                            self.led.enabled = True
+                            print("LED:ON\n")
+                        elif value == "off":
+                            self.led.enabled = False
+                            print("LED:OFF\n")
+                        else:
+                            brightness = int(value)
+                            self.led.brightness = brightness
+                            print(f"LED:{brightness}%\n")
+                    except (ValueError, IndexError):
+                        print("ERROR: Invalid LED command\n")
+                
+                else:
+                    # Echo back unknown commands
+                    print(f"UNKNOWN:{line}\n")
+                    
+        except Exception as e:
+            print(f"ERROR:{str(e)}\n")
+    
+    def run(self):
+        """Main application loop."""
+        last_led_update = time.ticks_ms()
+        
+        while True:
+            current_time = time.ticks_ms()
+            
+            # Update input devices
+            self.input_manager.update()
+            
+            # Check for serial commands
+            self.check_serial_commands()
+            
+            # Update LED (for any animations or effects)
+            if time.ticks_diff(current_time, last_led_update) > 10:  # 100Hz
+                # Add any LED update logic here
+                last_led_update = current_time
+            
+            # Small delay to prevent CPU overload
+            time.sleep_ms(1)
 
 def main():
-    # Initialize hardware
-    button = Button(BUTTON_PIN)
-    encoder = RotaryEncoder(ENCODER_DT_PIN, ENCODER_CLK_PIN, ENCODER_BTN_PIN)
-    
-    while True:
-        # Check main button
-        if button.is_pressed():
-            print("BTN:PRESS\n")
-            
-        # Check encoder
-        rotation, encoder_btn = encoder.read()
-        if rotation != 0:
-            print(f"ENC:{'+1' if rotation > 0 else '-1'}\n")
-        if encoder_btn:
-            print("ENC:BTN\n")
-            
-        # Check for serial commands
-        check_for_command()
-        
-        time.sleep_ms(1)  # Small delay to prevent CPU overload
+    # Create and run the application
+    app = Application()
+    app.run()
 
 if __name__ == "__main__":
     main()

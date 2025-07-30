@@ -11,9 +11,5 @@
     ],
     "python.analysis.extraPaths": [
         "~/.micropico-stubs/included"
-    ],
-    "cSpell.words": [
-        "hexlify",
-        "micropython"
     ]
 }
