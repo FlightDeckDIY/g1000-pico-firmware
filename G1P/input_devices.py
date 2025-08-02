@@ -9,6 +9,10 @@ from config import (
 # Allocate memory for interrupt handlers
 micropython.alloc_emergency_exception_buf(100)
 
+#-------------------------------------------------------------------------------------
+# Button
+#-------------------------------------------------------------------------------------
+
 class Button:
     """Debounced button with press/release detection."""
     def __init__(self, button_id, pin_num):
@@ -56,6 +60,10 @@ class Button:
             
             self.long_press_triggered = True
             self.long_press_callback(self.id)
+
+#----------------------------------------------------------------------------------------------------
+# Rotary Encoder
+#----------------------------------------------------------------------------------------------------
 
 class RotaryEncoder:
     """Rotary encoder with acceleration support."""
@@ -110,6 +118,10 @@ class RotaryEncoder:
         # Reset step count if no movement for a while
         elif time.ticks_diff(time.ticks_ms(), self.last_step_time) > 200:
             self.step_count = 0
+
+#----------------------------------------------------------------------------------------------------
+# Input Manager
+#----------------------------------------------------------------------------------------------------
     
 class InputManager:
     """Manages all input devices and their callbacks."""
