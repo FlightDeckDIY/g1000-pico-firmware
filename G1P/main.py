@@ -109,7 +109,7 @@ class Application:
                         value = line[10:].strip().lower()
                         was_connected = self.is_sim_connected
                         self.is_sim_connected = value == "connected"
-                        
+
                         # If we just connected, set LED to 92%
                         if self.is_sim_connected and not was_connected:
                             self.led.brightness = 92

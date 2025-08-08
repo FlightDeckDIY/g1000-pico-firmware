@@ -84,35 +84,38 @@ class RotaryEncoder:
         """Update encoder state and trigger callbacks."""
         current_clk = self.clk.value()
         if current_clk != self.last_clk:
-            now = time.ticks_ms()
-            dt = time.ticks_diff(now, self.last_step_time)
-            self.last_step_time = now
-            
-            # Determine direction
-            if self.dt.value() != current_clk:
-                direction = 1  # Clockwise
-            else:
-                direction = -1  # Counter-clockwise
-            
-            # Calculate speed/acceleration
-            speed = 1
-            if EncoderConfig.ACCELERATION_ENABLED:
-                if dt < 100:  # Only accelerate for quick successive turns
-                    self.step_count = min(self.step_count + 1, EncoderConfig.ACCEL_THRESHOLD * 2)
-                    if self.step_count > EncoderConfig.ACCEL_THRESHOLD:
-                        speed = min(
-                            EncoderConfig.ACCEL_FACTOR * 
-                            (self.step_count - EncoderConfig.ACCEL_THRESHOLD + 1),
-                            EncoderConfig.MAX_SPEED
-                        )
+            # Only act on rising edge to avoid double counts per detent
+            if current_clk == 1:
+                now = time.ticks_ms()
+                dt = time.ticks_diff(now, self.last_step_time)
+                self.last_step_time = now
+                
+                # Determine direction
+                if self.dt.value() != current_clk:
+                    direction = 1  # Clockwise
                 else:
-                    self.step_count = 0
+                    direction = -1  # Counter-clockwise
+                
+                # Calculate speed/acceleration
+                speed = 1
+                if EncoderConfig.ACCELERATION_ENABLED:
+                    if dt < 100:  # Only accelerate for quick successive turns
+                        self.step_count = min(self.step_count + 1, EncoderConfig.ACCEL_THRESHOLD * 2)
+                        if self.step_count > EncoderConfig.ACCEL_THRESHOLD:
+                            speed = min(
+                                EncoderConfig.ACCEL_FACTOR * 
+                                (self.step_count - EncoderConfig.ACCEL_THRESHOLD + 1),
+                                EncoderConfig.MAX_SPEED
+                            )
+                    else:
+                        self.step_count = 0
+                
+                # Update position and trigger callback
+                self.position += direction * speed
+                if self.rotation_callback:
+                    self.rotation_callback(self.id, direction, speed)
             
-            # Update position and trigger callback
-            self.position += direction * speed
-            if self.rotation_callback:
-                self.rotation_callback(self.id, direction, speed)
-            
+            # Update last_clk after handling edge (rising or falling)
             self.last_clk = current_clk
         
         # Reset step count if no movement for a while
