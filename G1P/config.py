@@ -1,4 +1,4 @@
-from machine import Pin
+from machine import Pin, I2C
 from collections import namedtuple
 
 class Mode:
@@ -26,6 +26,11 @@ class Pins:
     # LED Backlight - Using raw GPIO number
     # For RP2350B, use the actual GPIO number (0-47)
     LED_BACKLIGHT = 21  # Update this to your actual LED GPIO
+    
+    # I2C and shared interrupt pins (RP2350B GPIO numbers)
+    MCP_INT = 1
+    I2C_SDA = 2
+    I2C_SCL = 3
     
     # Encoders with their respective GPIO numbers for RP2350B
     # Format: (encoder_id, dt_gpio, clk_gpio)
@@ -118,3 +123,23 @@ class ButtonConfig:
     # Button states
     PRESSED = 0
     RELEASED = 1
+
+#-------------------------------------------------------------------------------------
+# I2C and MCP23017 Configuration
+#-------------------------------------------------------------------------------------
+
+class I2CConfig:
+    """I2C bus configuration for peripherals on the RP2350B."""
+    BUS_ID = 1
+    FREQ = 400_000  # 400kHz fast-mode
+    SDA = Pins.I2C_SDA
+    SCL = Pins.I2C_SCL
+
+    @staticmethod
+    def init():
+        """Create and return the configured I2C instance."""
+        return I2C(I2CConfig.BUS_ID, sda=Pin(I2CConfig.SDA), scl=Pin(I2CConfig.SCL), freq=I2CConfig.FREQ)
+
+# MCP23017 helpers have been moved to input_devices.py
+# Re-export here to keep import paths stable: from config import MCP23017
+from input_devices import MCP23017  # noqa: F401

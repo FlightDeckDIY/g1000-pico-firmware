@@ -3,7 +3,7 @@ import time
 import micropython
 from config import (
     Pins, ButtonConfig, EncoderConfig, 
-    ModeConfig, SerialConfig
+    ModeConfig, SerialConfig, I2CConfig
 )
 
 # Allocate memory for interrupt handlers
@@ -195,3 +195,160 @@ class InputManager:
     def _handle_long_press(self, button_id):
         for handler in self._long_press_handlers:
             handler(button_id)
+
+#----------------------------------------------------------------------------------------------------
+# MCP23017 GPIO Expander (moved from config.py)
+#----------------------------------------------------------------------------------------------------
+
+class MCP23017:
+    """Helpers and constants for configuring MCP23017 expanders."""
+
+    class Addr:
+        BOTTOM = 0x20  # bottom PCB
+        RIGHT1 = 0x22  # right PCB (first)
+        RIGHT2 = 0x24  # right PCB (second)
+        ALL = [BOTTOM, RIGHT1, RIGHT2]
+
+    class Reg:
+        IODIRA   = 0x00
+        IODIRB   = 0x01
+        GPINTENA = 0x04
+        GPINTENB = 0x05
+        DEFVALA  = 0x06
+        DEFVALB  = 0x07
+        INTCONA  = 0x08
+        INTCONB  = 0x09
+        IOCON    = 0x0A  # same as 0x0B in BANK=0
+        GPPUA    = 0x0C
+        GPPUB    = 0x0D
+        INTFA    = 0x0E
+        INTFB    = 0x0F
+        INTCAPA  = 0x10
+        INTCAPB  = 0x11
+        GPIOA    = 0x12
+        GPIOB    = 0x13
+
+    class IOCONBits:
+        BANK   = 0x80
+        MIRROR = 0x40  # Mirror INTA/INTB
+        SEQOP  = 0x20
+        DISSLW = 0x10
+        HAEN   = 0x08  # not used on MCP23017 (I2C)
+        ODR    = 0x04  # Open-drain INT output
+        INTPOL = 0x02  # Interrupt polarity (ignored if ODR=1)
+
+    @staticmethod
+    def _read_reg(i2c, addr, reg, n=1):
+        return i2c.readfrom_mem(addr, reg, n)
+
+    @staticmethod
+    def _write_reg(i2c, addr, reg, data):
+        i2c.writeto_mem(addr, reg, data)
+
+    @staticmethod
+    def configure_interrupt_mirror(i2c, addr, *, mirror=True, open_drain=True, intpol_high=False):
+        """Enable mirrored interrupts between PortA and PortB and set INT pin mode.
+        - mirror=True ties INTA/INTB together internally so either port asserts the single INT line.
+        - open_drain=True is recommended when multiple MCP23017 INT pins are wired together.
+        - intpol_high sets active-high polarity when open_drain is False.
+        """
+        current = MCP23017._read_reg(i2c, addr, MCP23017.Reg.IOCON, 1)[0]
+        # Set/clear MIRROR
+        if mirror:
+            current |= MCP23017.IOCONBits.MIRROR
+        else:
+            current &= ~MCP23017.IOCONBits.MIRROR
+        # Configure INT output mode
+        if open_drain:
+            current |= MCP23017.IOCONBits.ODR
+            # INTPOL is ignored when ODR=1
+        else:
+            current &= ~MCP23017.IOCONBits.ODR
+            if intpol_high:
+                current |= MCP23017.IOCONBits.INTPOL
+            else:
+                current &= ~MCP23017.IOCONBits.INTPOL
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.IOCON, bytes([current]))
+
+    @staticmethod
+    def init_all_for_shared_interrupt(i2c=None):
+        """Initialize all MCP23017 devices (0x20, 0x22, 0x24) to use mirrored, open-drain INT outputs.
+        Returns the I2C instance used.
+        """
+        if i2c is None:
+            i2c = I2CConfig.init()
+        for a in MCP23017.Addr.ALL:
+            try:
+                MCP23017.configure_interrupt_mirror(i2c, a, mirror=True, open_drain=True)
+            except Exception as e:
+                # Device might be absent during bring-up; continue with others
+                print("WARN:MCP23017 init failed at 0x{:02X}: {}".format(a, e))
+        return i2c
+
+    @staticmethod
+    def setup_shared_int_pin(callback=None, *, trigger=Pin.IRQ_FALLING):
+        """Configure the shared INT line from all MCP23017s on a single MCU pin.
+        Uses GPIO1 with internal pull-up. Optionally attach an IRQ callback.
+        """
+        pin = Pin(Pins.MCP_INT, Pin.IN, Pin.PULL_UP)
+        if callback is not None:
+            pin.irq(trigger=trigger, handler=callback)
+        return pin
+
+    @staticmethod
+    def read_and_clear_interrupts(i2c, addr):
+        """Read interrupt flags and capture registers and clear the interrupt.
+        Returns a tuple: (flags_a, cap_a, flags_b, cap_b)
+        Reading INTCAPx clears the latched interrupt condition on that port.
+        """
+        try:
+            flags_a = MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTFA, 1)[0]
+            flags_b = MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTFB, 1)[0]
+            cap_a = MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTCAPA, 1)[0]
+            cap_b = MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTCAPB, 1)[0]
+            return flags_a, cap_a, flags_b, cap_b
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def configure_inputs_interrupt_on_change(
+        i2c,
+        addr,
+        *,
+        iodir_a=0xFF,
+        iodir_b=0xFF,
+        pullups_a=0xFF,
+        pullups_b=0xFF,
+        gpinten_a=0xFF,
+        gpinten_b=0xFF,
+        intcon_a=0x00,
+        intcon_b=0x00,
+        defval_a=0x00,
+        defval_b=0x00,
+    ):
+        """Configure selected pins as inputs with pull-ups and interrupt-on-change.
+        - iodir_x: 1 bit = input, 0 bit = output
+        - pullups_x: enable internal 100k pull-ups for input pins
+        - gpinten_x: enable interrupt-on-change for those pins
+        - intcon_x: 0 = compare to previous value (change detect), 1 = compare to DEFVAL
+        - defval_x: compare reference when intcon bit=1
+        """
+        # Directions
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.IODIRA, bytes([iodir_a]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.IODIRB, bytes([iodir_b]))
+        # Pull-ups
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.GPPUA, bytes([pullups_a]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.GPPUB, bytes([pullups_b]))
+        # Interrupt control
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.INTCONA, bytes([intcon_a]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.INTCONB, bytes([intcon_b]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.DEFVALA, bytes([defval_a]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.DEFVALB, bytes([defval_b]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.GPINTENA, bytes([gpinten_a]))
+        MCP23017._write_reg(i2c, addr, MCP23017.Reg.GPINTENB, bytes([gpinten_b]))
+        # Clear any pending by reading INTCAP
+        try:
+            MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTCAPA, 1)
+            MCP23017._read_reg(i2c, addr, MCP23017.Reg.INTCAPB, 1)
+        except Exception:
+            pass
