@@ -73,9 +73,9 @@ class Application:
                 MCP23017.configure_interrupt_mirror(self.i2c, a, mirror=True, open_drain=True)
                 # Configure inputs + interrupt-on-change for the 0x22 device per mapping
                 if a == MCP23017.Addr.RIGHT1:
-                    # Enable interrupts on: all buttons, and only *_1 encoder lines for single event per detent
-                    gpinten_a = 0x3F  # A0..A5 enabled; A6/A7 (CRS_BARO_*_2) disabled
-                    gpinten_b = 0x5F  # B0..B4,B6 enabled; B5/B7 (FMS_*_2) disabled
+                    # Enable interrupts on: all buttons, and all encoder lines for single event per detent
+                    gpinten_a = 0xFF  # A0..A7 enabled
+                    gpinten_b = 0xFF  # B0..B7 enabled
                     # Use change-detect on all pins; we'll filter encoders to falling edge in software
                     intcon_a = 0x00
                     intcon_b = 0x00
@@ -92,10 +92,8 @@ class Application:
                     )
                 # Configure inputs + interrupt-on-change for the 0x24 device per mapping
                 if a == MCP23017.Addr.RIGHT2:
-                    # Enable interrupts on: buttons and only one phase per encoder
-                    # A side: enable buttons (A0,A2,A5) and encoder lines A1, A3, A4; disable A6,A7 (COM_FQ *_2)
-                    gpinten_a = 0x3F  # 0b0011_1111
-                    # B side: enable COM_VOL_A (B0) as primary phase, buttons B2,B3,B4,B5,B7; disable B1,B6
+                    # Enable interrupts on: buttons and all encoder lines
+                    gpinten_a = 0xFF  # A0..A7 enabled
                     gpinten_b = 0xBD  # 0b1011_1101
                     # Use change-detect; filter encoders in software to falling edge only
                     intcon_a = 0x00
@@ -113,6 +111,23 @@ class Application:
                     )
             except Exception as e:
                 print("WARN:MCP23017 init at {} failed: {}".format(hex(a), e))
+        # Add mapping entries for *_2 encoder pins now that they are enabled
+        try:
+            m = getattr(self, "_mcp_maps", {}).get(MCP23017.Addr.RIGHT1)
+            if m:
+                # 0x22 Port A: CRS/BARO outer encoder
+                m['A'][6] = ('CRS_BARO_CW_2', 'ENCODER')
+                m['A'][7] = ('CRS_BARO_CCW_2', 'ENCODER')
+                # 0x22 Port B: FMS outer encoder
+                m['B'][5] = ('FMS_CW_2', 'ENCODER')
+                m['B'][7] = ('FMS_CCW_2', 'ENCODER')
+            m = getattr(self, "_mcp_maps", {}).get(MCP23017.Addr.RIGHT2)
+            if m:
+                # 0x24 Port A: COM_FQ outer encoder
+                m['A'][6] = ('COM_FQ_CW_2', 'ENCODER')
+                m['A'][7] = ('COM_FQ_CCW_2', 'ENCODER')
+        except Exception as _:
+            pass
         # Shared interrupt line on GPIO1
         self._mcp_int_flag = False
         self._mcp_irq_count = 0
@@ -126,6 +141,13 @@ class Application:
         self._enc_active = set()  # keys of form (addr, 'A'|'B', bit)
         # Debug verbosity for IRQ count prints
         self._mcp_debug = False
+        # MAP button suppression: hardware asserts MAP_PUSH alongside MAP_UP/DOWN/LEFT/RIGHT
+        # Suppress MAP_PUSH press (and corresponding release) if it immediately follows a MAP direction press
+        self._map_dir_names = {'MAP_UP', 'MAP_DOWN', 'MAP_LEFT', 'MAP_RIGHT'}
+        self._map_push_name = 'MAP_PUSH'
+        self._map_suppress_window_ms = 40  # time window after a direction press to suppress MAP_PUSH
+        self._map_last_dir_press_ms = 0
+        self._map_push_suppressed_active = False
 
         # Command buffer for serial input
         self.command_buffer = ""
@@ -287,7 +309,26 @@ class Application:
                             fa, ca, fb, cb = MCP23017.read_and_clear_interrupts(self.i2c, a)
                             if fa or fb:
                                 any_event = True
-                                mapping = getattr(self, "_mcp_maps", {}).get(a)
+                                mapping = getattr(self, "_mcp_maps", {}).get(a, {})
+                                # Pre-scan this interrupt to see if any MAP direction press occurred
+                                suppress_map_push_now = False
+                                if mapping:
+                                    if fa:
+                                        for _bit in range(8):
+                                            if fa & (1 << _bit):
+                                                n, t = mapping['A'].get(_bit, (None, None))
+                                                if t == 'BUTTON' and n in self._map_dir_names and (((ca >> _bit) & 1) == 0):
+                                                    suppress_map_push_now = True
+                                                    break
+                                    if not suppress_map_push_now and fb:
+                                        for _bit in range(8):
+                                            if fb & (1 << _bit):
+                                                n, t = mapping['B'].get(_bit, (None, None))
+                                                if t == 'BUTTON' and n in self._map_dir_names and (((cb >> _bit) & 1) == 0):
+                                                    suppress_map_push_now = True
+                                                    break
+                                    if suppress_map_push_now:
+                                        self._map_last_dir_press_ms = time.ticks_ms()
                                 if mapping:
                                     if fa:
                                         for bit in range(8):
@@ -311,6 +352,18 @@ class Application:
                                                                 self._enc_active.remove(key)
                                                             continue
                                                     else:
+                                                        # MAP_PUSH suppression logic
+                                                        if name == self._map_push_name:
+                                                            if val == 0:
+                                                                if suppress_map_push_now or time.ticks_diff(now, self._map_last_dir_press_ms) <= self._map_suppress_window_ms:
+                                                                    self._map_push_suppressed_active = True
+                                                                    continue
+                                                            else:
+                                                                if self._map_push_suppressed_active:
+                                                                    self._map_push_suppressed_active = False
+                                                                    continue
+                                                        elif name in self._map_dir_names and val == 0:
+                                                            self._map_last_dir_press_ms = now
                                                         print(f"{SerialConfig.MSG_PREFIX}:MCP:{hex(a)}:A:{name}:{typ}:{val}\n")
                                     if fb:
                                         for bit in range(8):
@@ -334,6 +387,18 @@ class Application:
                                                                 self._enc_active.remove(key)
                                                             continue
                                                     else:
+                                                        # MAP_PUSH suppression logic
+                                                        if name == self._map_push_name:
+                                                            if val == 0:
+                                                                if suppress_map_push_now or time.ticks_diff(now, self._map_last_dir_press_ms) <= self._map_suppress_window_ms:
+                                                                    self._map_push_suppressed_active = True
+                                                                    continue
+                                                            else:
+                                                                if self._map_push_suppressed_active:
+                                                                    self._map_push_suppressed_active = False
+                                                                    continue
+                                                        elif name in self._map_dir_names and val == 0:
+                                                            self._map_last_dir_press_ms = now
                                                         print(f"{SerialConfig.MSG_PREFIX}:MCP:{hex(a)}:B:{name}:{typ}:{val}\n")
                                 else:
                                     # Fallback: print raw summary
@@ -360,9 +425,28 @@ class Application:
                     while cur == 0 and loops < 8:
                         for a in getattr(self, "_mcp_addrs", []):
                             try:
-                                fa, ca, fb, cb = MCP23017.read_and_clear_interrupts(self.i2c, a)
+                                fa, fb, ca, cb = MCP23017.read_and_clear_interrupts(self.i2c, a)
                                 if fa or fb:
-                                    mapping = getattr(self, "_mcp_maps", {}).get(a)
+                                    mapping = getattr(self, "_mcp_maps", {}).get(a, {})
+                                    # Pre-scan this interrupt to see if any MAP direction press occurred
+                                    suppress_map_push_now = False
+                                    if mapping:
+                                        if fa:
+                                            for _bit in range(8):
+                                                if fa & (1 << _bit):
+                                                    n, t = mapping['A'].get(_bit, (None, None))
+                                                    if t == 'BUTTON' and n in self._map_dir_names and (((ca >> _bit) & 1) == 0):
+                                                        suppress_map_push_now = True
+                                                        break
+                                        if not suppress_map_push_now and fb:
+                                            for _bit in range(8):
+                                                if fb & (1 << _bit):
+                                                    n, t = mapping['B'].get(_bit, (None, None))
+                                                    if t == 'BUTTON' and n in self._map_dir_names and (((cb >> _bit) & 1) == 0):
+                                                        suppress_map_push_now = True
+                                                        break
+                                        if suppress_map_push_now:
+                                            self._map_last_dir_press_ms = time.ticks_ms()
                                     if mapping:
                                         if fa:
                                             for bit in range(8):
@@ -386,6 +470,18 @@ class Application:
                                                                     self._enc_active.remove(key)
                                                                 continue
                                                         else:
+                                                            # MAP_PUSH suppression logic
+                                                            if name == self._map_push_name:
+                                                                if val == 0:
+                                                                    if suppress_map_push_now or time.ticks_diff(now, self._map_last_dir_press_ms) <= self._map_suppress_window_ms:
+                                                                        self._map_push_suppressed_active = True
+                                                                        continue
+                                                                else:
+                                                                    if self._map_push_suppressed_active:
+                                                                        self._map_push_suppressed_active = False
+                                                                        continue
+                                                            elif name in self._map_dir_names and val == 0:
+                                                                self._map_last_dir_press_ms = now
                                                             print(f"{SerialConfig.MSG_PREFIX}:MCP:{hex(a)}:A:{name}:{typ}:{val}\n")
                                         if fb:
                                             for bit in range(8):
@@ -409,6 +505,18 @@ class Application:
                                                                     self._enc_active.remove(key)
                                                                 continue
                                                         else:
+                                                            # MAP_PUSH suppression logic
+                                                            if name == self._map_push_name:
+                                                                if val == 0:
+                                                                    if suppress_map_push_now or time.ticks_diff(now, self._map_last_dir_press_ms) <= self._map_suppress_window_ms:
+                                                                        self._map_push_suppressed_active = True
+                                                                        continue
+                                                                else:
+                                                                    if self._map_push_suppressed_active:
+                                                                        self._map_push_suppressed_active = False
+                                                                        continue
+                                                            elif name in self._map_dir_names and val == 0:
+                                                                self._map_last_dir_press_ms = now
                                                             print(f"{SerialConfig.MSG_PREFIX}:MCP:{hex(a)}:B:{name}:{typ}:{val}\n")
                                     else:
                                         print(f"{SerialConfig.MSG_PREFIX}:MCP_INT:{hex(a)}:A:flags=0x{fa:02X},cap=0x{ca:02X}\n")
