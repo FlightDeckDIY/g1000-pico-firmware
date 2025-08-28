@@ -1,0 +1,112 @@
+import machine
+import time
+# from config import LED_BACKLIGHT
+
+# LED backlighting pin
+LED_BACKLIGHT = 21
+
+class LEDController:
+    """Controls the LED backlight."""
+    
+    def __init__(self):
+        self.pin = machine.Pin(LED_BACKLIGHT, machine.Pin.OUT)
+        self._brightness = 0  # 0-100%
+        self._enabled = False
+        
+        # Initialize PWM for brightness control
+        self.pwm = machine.PWM(self.pin)
+        self.pwm.freq(1000)  # 1kHz PWM frequency
+
+        self.last_update = time.ticks_ms()
+
+        self.update()
+    
+    @property
+    def brightness(self):
+        """Get the current brightness (0-100)."""
+        return self._brightness
+    
+    @brightness.setter
+    def brightness(self, value):
+        """Set the brightness (0-100)."""
+        self._brightness = max(0, min(100, int(value)))
+        self.update()
+    
+    @property
+    def enabled(self):
+        """Check if the backlight is enabled."""
+        return self._enabled
+    
+    @enabled.setter
+    def enabled(self, value):
+        """Enable or disable the backlight."""
+        self._enabled = bool(value)
+        self.update()
+    
+    def update(self):
+        """Update the PWM output based on current settings."""
+        if self._enabled and self._brightness > 0:
+            # Convert 0-100 to 16-bit duty cycle
+            duty = int((self._brightness / 100) * 65535)
+            self.pwm.duty_u16(duty)
+        else:
+            self.pwm.duty_u16(0)
+    
+    def toggle(self):
+        """Toggle the backlight on/off."""
+        self.enabled = not self._enabled
+
+    def flash(self, duration_ms=30, number_of_flashes=5):
+        """Flash the backlight for a specified duration."""
+        for _ in range(number_of_flashes):
+            self.enabled = True
+            time.sleep_ms(duration_ms)
+            self.enabled = False
+            time.sleep_ms(duration_ms)
+
+        self.enabled = True
+
+    def breathe(self, duration_ms=2500, max_brightness=50, min_brightness=10, hold_ms=40):
+        """Smooth breathing effect for the LED with a pause at min/max brightness.
+        
+        Returns:
+            bool: True if the animation updated the brightness, False if it should be stopped
+        """
+        # Only update brightness if we're in breathing mode
+        if not hasattr(self, '_breathing') or not self._breathing:
+            return False
+            
+        current_time = time.ticks_ms()
+        half_duration = (duration_ms - (2 * hold_ms)) / 2  # Time for each fade in/out
+        cycle_duration = duration_ms  # Total time for one full cycle
+        
+        # Calculate elapsed time within the current cycle
+        elapsed = time.ticks_diff(current_time, self.last_update) % cycle_duration
+        
+        if elapsed < half_duration:
+            # Fading in
+            progress = elapsed / half_duration
+            brightness = min_brightness + (progress * (max_brightness - min_brightness))
+        elif elapsed < half_duration + hold_ms:
+            # Hold at max brightness
+            brightness = max_brightness
+        elif elapsed < (2 * half_duration) + hold_ms:
+            # Fading out
+            progress = (elapsed - half_duration - hold_ms) / half_duration
+            brightness = max_brightness - (progress * (max_brightness - min_brightness))
+        else:
+            # Hold at min brightness
+            brightness = min_brightness
+        
+        self._brightness = int(brightness)
+        self.update()
+        return True
+        
+    def start_breathing(self):
+        """Start the breathing animation."""
+        self._breathing = True
+        
+    def stop_breathing(self):
+        """Stop the breathing animation."""
+        self._breathing = False
+        
