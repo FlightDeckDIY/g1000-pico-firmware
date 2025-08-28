@@ -62,8 +62,8 @@ MCP23017_MAPS = {
     # RIGHT PCB LOWER MCP23017 - 0x22
     "RIGHT_LOWER": {
         "port_a": [
-            "PROC",
             "CLR",
+            "FPL",
             "DIRECT_TO",
             "CRS_BARO_CW_MINOR",
             "CRS_BARO_CCW_MINOR",
@@ -72,8 +72,8 @@ MCP23017_MAPS = {
             "CRS_BARO_CCW_MAJOR"
         ],
         "port_b": [
-            "FPL",
             "MENU",
+            "PROC",
             "ENT",
             "FMS_CW_MINOR",
             "FMS_CCW_MINOR",

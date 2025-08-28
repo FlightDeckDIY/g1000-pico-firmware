@@ -198,12 +198,9 @@ class MCP23017Handler:
                     # Handle pin change
                     if not self.is_encoder_pin(dev_name, pin_name):
                         # Handle button events (including MAP filtering)
-                        should_print = button_handler.handle_pin_change(
+                        button_handler.handle_pin_change(
                             pin_name, is_pressed, current_time, dev_name, port_name[-1].upper(), bit, old_val, new_val
                         )
-                        if should_print:
-                            action = "PRESS" if is_pressed else "RELEASE"
-                            print(f"EVENT::BUTTON:{pin_name}:{action}")
                     
                     # Handle encoder events
                     encoder_handler.process_mcp_pin_change(

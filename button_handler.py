@@ -145,6 +145,7 @@ class ButtonHandler:
 
     def process_mcp_buttons(self, current_time):
         """Process MCP23017 button inputs with repeat support for map direction buttons."""
+        MAP_REPEAT_DELAY = 1000  # ms before repeat starts
         for button_name, button_state in self.button_states.items():
             if button_state['source'] != 'mcp' or not button_state['is_pressed']:
                 continue
@@ -155,11 +156,13 @@ class ButtonHandler:
                     button_state['hold_reported'] = True
                     print(f"EVENT::BUTTON:{button_name}:HOLD")
             
-            # Handle map direction button repeat
+            # Handle map direction button repeat with initial delay
             if button_name in ['MAP_UP', 'MAP_DOWN', 'MAP_LEFT', 'MAP_RIGHT']:
-                if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL:
-                    print(f"EVENT::BUTTON:{button_name}:PRESS")
-                    self.map_direction_repeat_times[button_name] = current_time
+                held_time = time.ticks_diff(current_time, button_state['press_time'])
+                if held_time >= MAP_REPEAT_DELAY:
+                    if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL:
+                        print(f"EVENT::BUTTON:{button_name}:PRESS")
+                        self.map_direction_repeat_times[button_name] = current_time
 
     def handle_pin_change(self, pin_name, is_pressed, current_time, dev_name=None, port=None, bit=None, old_val=None, new_val=None):
         """Handle pin change events from MCP23017 devices."""
