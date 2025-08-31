@@ -23,7 +23,7 @@ class ButtonHandler:
                 'is_pressed': False,
                 'press_time': 0,
                 'hold_reported': False,
-                'hold_threshold': BUTTON_HOLD_THRESHOLD,
+                'hold_threshold': BUTTON_HOLD_THRESHOLD_MS,
                 'source': 'direct'
             }
         
@@ -36,7 +36,7 @@ class ButtonHandler:
                             'is_pressed': False,
                             'press_time': 0,
                             'hold_reported': False,
-                            'hold_threshold': BUTTON_HOLD_THRESHOLD,
+                            'hold_threshold': BUTTON_HOLD_THRESHOLD_MS,
                             'source': 'mcp',
                             'device': dev_name,
                             'port': port,
@@ -49,7 +49,7 @@ class ButtonHandler:
             'pending_release': False,
             'press_time': 0,
             'release_time': 0,
-            'timeout_ms': MAP_PUSH_TIMEOUT,
+            'timeout_ms': MAP_PUSH_TIMEOUT_MS,
             'direction_active': False,
             'last_direction_time': 0
         }
@@ -62,7 +62,7 @@ class ButtonHandler:
         """Handle MAP button events with filtering logic."""
         if pin_name == "MAP_PUSH":
             # Check if any direction button was pressed recently
-            recent_direction = time.ticks_diff(current_time, self.map_push_state['last_direction_time']) < MAP_DIRECTION_SUPPRESSION_WINDOW
+            recent_direction = time.ticks_diff(current_time, self.map_push_state['last_direction_time']) < MAP_DIRECTION_SUPPRESSION_WINDOW_MS
             
             if is_pressed:
                 # MAP_PUSH pressed - check if direction is active or was recent
@@ -145,7 +145,6 @@ class ButtonHandler:
 
     def process_mcp_buttons(self, current_time):
         """Process MCP23017 button inputs with repeat support for map direction buttons."""
-        MAP_REPEAT_DELAY = 1000  # ms before repeat starts
         for button_name, button_state in self.button_states.items():
             if button_state['source'] != 'mcp' or not button_state['is_pressed']:
                 continue
@@ -159,8 +158,8 @@ class ButtonHandler:
             # Handle map direction button repeat with initial delay
             if button_name in ['MAP_UP', 'MAP_DOWN', 'MAP_LEFT', 'MAP_RIGHT']:
                 held_time = time.ticks_diff(current_time, button_state['press_time'])
-                if held_time >= MAP_REPEAT_DELAY:
-                    if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL:
+                if held_time >= MAP_REPEAT_DELAY_MS:
+                    if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL_MS:
                         print(f"EVENT::BUTTON:{button_name}:PRESS")
                         self.map_direction_repeat_times[button_name] = current_time
 

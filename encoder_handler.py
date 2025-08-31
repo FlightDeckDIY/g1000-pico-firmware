@@ -158,9 +158,25 @@ class EncoderHandler:
                     # Valid continuation of sequence
                     state['sequence_step'] = step
                 elif state['expected_direction'] != direction:
-                    # Direction change - reset sequence
+                    # Direction change detected - immediately reset and start new sequence
                     state['expected_direction'] = direction
-                    state['sequence_step'] = 1
+                    state['sequence_step'] = step  # Use current step, not reset to 1
+                    # For immediate direction change detection, treat step 1 as a mini-detent
+                    if step == 1:
+                        # Immediate direction change detection - generate detent event
+                        time_diff_us = time.ticks_diff(current_time, state['last_detent_time'])
+                        speed = self._calculate_speed(time_diff_us)
+                        
+                        state['last_direction'] = direction
+                        state['last_speed'] = speed
+                        state['last_detent_time'] = current_time
+                        state['total_detents'] += 1
+                        
+                        direction_str = "CW" if direction > 0 else "CCW"
+                        print(f"EVENT::ROTARY:{encoder_name}:{direction_str}:{speed}")
+                        
+                        state['last_state'] = (current_a, current_b)
+                        return True, direction, speed
                 else:
                     # Invalid sequence step
                     state['invalid_transitions'] += 1
@@ -223,7 +239,7 @@ class EncoderHandler:
             return 4
         elif time_diff_ms < 60:    # < 60ms = medium-fast
             return 3
-        elif time_diff_ms < 120:   # < 120ms = medium
+        elif time_diff_ms < 90:   # < 120ms = medium
             return 2
         else:
             return 1               # >= 120ms = slow

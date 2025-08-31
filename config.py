@@ -174,7 +174,8 @@ USB_CHECK_INTERVAL = 5
 LED_UPDATE_INTERVAL = 10
 
 # Button Configuration
-BUTTON_HOLD_THRESHOLD = 2000  # 2 seconds in milliseconds
-MAP_PUSH_TIMEOUT = 15  # MAP button filtering timeout
-MAP_DIRECTION_SUPPRESSION_WINDOW = 50  # Direction button suppression window
-MAP_BUTTON_REPEAT_INTERVAL = 100  # Repeat interval for map direction buttons in milliseconds
+BUTTON_HOLD_THRESHOLD_MS = 2000  # 2 seconds in milliseconds
+MAP_PUSH_TIMEOUT_MS = 15  # MAP button filtering timeout
+MAP_DIRECTION_SUPPRESSION_WINDOW_MS = 50  # Direction button suppression window
+MAP_BUTTON_REPEAT_INTERVAL_MS = 10  # Repeat interval for map direction buttons in milliseconds
+MAP_REPEAT_DELAY_MS = 750  # ms before repeat starts
