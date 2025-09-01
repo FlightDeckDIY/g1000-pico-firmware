@@ -37,11 +37,6 @@ def handle_usb_command(command):
     global mode_manager, led_controller, is_sim_connected
     
     try:
-        if command == "electricalMaster:OFF":
-            led_controller.breathe()
-        if command == "electricalMaster:ON":
-            led_controller.stop_breathing()
-            led_controller.brightness = 15
         if command == "deviceInfo":
             id_hex = hexlify(machine.unique_id()).decode('utf-8')
             print(f"DEVICE ID: {id_hex}")
@@ -92,6 +87,18 @@ def handle_usb_command(command):
                         print("ERROR:Invalid brightness value")
             except Exception as e:
                 print(f"LED_ERROR:{e}")
+
+        elif command.startswith("electricalMaster:") and led_controller is not None:
+            value = command[17:].lower()
+            print(f"value", value)
+            try:
+                if value == "off":
+                    led_controller.start_breathing()
+                elif value == "on":
+                    led_controller.stop_breathing()
+                    led_controller.brightness = 0
+            except Exception as e:
+                print(f"ELECTRICAL_MASTER_ERROR:{e}")
                 
         elif command.lower() == "encoderstats":
             # Get encoder diagnostic information
@@ -158,6 +165,7 @@ def main():
     
     # Initialize state variables
     is_sim_connected = False
+    is_master_switch_on = False
     reset_requested = False
     
     # Timing variables
@@ -186,7 +194,7 @@ def main():
         
         # Update LED (every 10ms)
         if time.ticks_diff(current_time, last_led_update) >= LED_UPDATE_INTERVAL:
-            if not is_sim_connected:
+            if not is_sim_connected or not is_master_switch_on:
                 led_controller.breathe()
             last_led_update = current_time
         
