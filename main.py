@@ -37,6 +37,11 @@ def handle_usb_command(command):
     global mode_manager, led_controller, is_sim_connected
     
     try:
+        if command == "electricalMaster:OFF":
+            led_controller.breathe()
+        if command == "electricalMaster:ON":
+            led_controller.stop_breathing()
+            led_controller.brightness = 15
         if command == "deviceInfo":
             id_hex = hexlify(machine.unique_id()).decode('utf-8')
             print(f"DEVICE ID: {id_hex}")
@@ -55,7 +60,7 @@ def handle_usb_command(command):
             if led_controller:
                 if is_sim_connected:
                     led_controller.stop_breathing()
-                    led_controller.brightness = 92
+                    led_controller.brightness = 0
                 else:
                     led_controller.start_breathing()
             print(f"SIM_CONNECTED:{is_sim_connected}")
