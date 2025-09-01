@@ -96,7 +96,6 @@ def handle_usb_command(command):
                     led_controller.start_breathing()
                 elif value == "on":
                     led_controller.stop_breathing()
-                    led_controller.brightness = 0
             except Exception as e:
                 print(f"ELECTRICAL_MASTER_ERROR:{e}")
                 
