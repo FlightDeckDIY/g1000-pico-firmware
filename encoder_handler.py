@@ -3,9 +3,55 @@
 import time
 from machine import Pin
 from config import *
+from mode_manager import PFD_MODE, MFD_MODE
 
 class EncoderHandler:
-    def __init__(self):
+    def __init__(self, mode_manager=None):
+        self.mode_manager = mode_manager
+        # Circular buffer for encoder events (prevents data loss)
+        self.encoder_buffer = []
+        self.max_buffer_size = 200
+        self.buffer_overflow_count = 0
+        # Encoder state tracking with enhanced quadrature decoding
+        self.encoder_states = {}
+        # Complete quadrature state transition table
+        self.quadrature_table = {
+            # Clockwise sequence: 00 -> 01 -> 11 -> 10 -> 00
+            (0, 0, 1, 0): (1, True, 1),   # CW step 1
+            (1, 0, 1, 1): (1, True, 2),   # CW step 2
+            (1, 1, 0, 1): (1, True, 3),   # CW step 3
+            (0, 1, 0, 0): (1, True, 4),   # CW step 4 (complete detent)
+            # Counter-clockwise sequence: 00 -> 10 -> 11 -> 01 -> 00
+            (0, 0, 0, 1): (-1, True, 1),  # CCW step 1
+            (0, 1, 1, 1): (-1, True, 2),  # CCW step 2
+            (1, 1, 1, 0): (-1, True, 3),  # CCW step 3
+            (1, 0, 0, 0): (-1, True, 4),  # CCW step 4 (complete detent)
+            # No change states
+            (0, 0, 0, 0): (0, True, 0),  # Rest position
+            (0, 1, 0, 1): (0, True, 0),  # Stable intermediate
+            (1, 1, 1, 1): (0, True, 0),  # Stable intermediate
+            (1, 0, 1, 0): (0, True, 0),  # Stable intermediate
+        }
+        # Initialize encoder states for direct MCU encoders
+        for encoder in ENCODERS:
+            name, pin_a, pin_b, detent_type = encoder
+            self.encoder_states[name] = {
+                'last_state': (0, 0),
+                'current_state': (0, 0),
+                'last_detent_time': 0,
+                'last_direction': 0,
+                'last_speed': 1,
+                'sequence_step': 0,        # Track position in quadrature sequence
+                'expected_direction': 0,   # Expected direction based on sequence
+                'invalid_transitions': 0,  # Count invalid state changes
+                'total_detents': 0,       # Total detents processed
+                'missed_transitions': 0,   # Estimated missed transitions
+                'last_interrupt_time': 0, # Time of last interrupt
+                'pin_a_pin': None,        # Pin object for interrupt setup
+                'pin_b_pin': None,        # Pin object for interrupt setup
+                'detent_type': detent_type # Single or dual detent encoder
+            }
+
         # Circular buffer for encoder events (prevents data loss)
         self.encoder_buffer = []
         self.max_buffer_size = 200
@@ -173,7 +219,8 @@ class EncoderHandler:
                         state['total_detents'] += 1
                         
                         direction_str = "CW" if direction > 0 else "CCW"
-                        print(f"EVENT::ROTARY:{encoder_name}:{direction_str}:{speed}")
+                        mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
+                        print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
                         
                         state['last_state'] = (current_a, current_b)
                         return True, direction, speed
@@ -212,7 +259,8 @@ class EncoderHandler:
                     
                     # Print encoder info with standardized format
                     direction_str = "CW" if direction > 0 else "CCW"
-                    print(f"EVENT::ROTARY:{encoder_name}:{direction_str}:{speed}")
+                    mode_str = 'PFD' if hasattr(self, 'mode_manager') and self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
+                    print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
                     
                     # Update last state after successful detent
                     state['last_state'] = (current_a, current_b)

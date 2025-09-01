@@ -132,10 +132,16 @@ def main():
     # Initialize I2C
     i2c = I2C(BUS_ID, scl=Pin(SCL), sda=Pin(SDA), freq=FREQ)
     
+    # Setup mode manager and led_controller first
+    mode_manager = ModeManager()
+    led_controller = LEDController()
     # Initialize handlers
     mcp_handler = MCP23017Handler(i2c)
-    button_handler = ButtonHandler()
-    encoder_handler = EncoderHandler()
+    button_handler = ButtonHandler(mode_manager, led_controller)
+    encoder_handler = EncoderHandler(mode_manager)
+    led_controller.enabled = True
+    led_controller.brightness = 15
+    led_controller.start_breathing()
     
     # Setup devices
     setup_mcu_devices()
@@ -157,6 +163,8 @@ def main():
     
     # Setup mode manager and LED controller
     mode_manager = ModeManager()
+    button_handler.mode_manager = mode_manager
+    encoder_handler.mode_manager = mode_manager
     led_controller = LEDController()
     led_controller.enabled = True
     led_controller.brightness = 15
