@@ -132,12 +132,22 @@ def main():
     # Initialize I2C
     i2c = I2C(BUS_ID, scl=Pin(SCL), sda=Pin(SDA), freq=FREQ)
     
-    # Setup mode manager and led_controller first
-    mode_manager = ModeManager()
+    # Setup mode manager first
     led_controller = LEDController()
+    # Register LED flash on mode change
+    def on_mode_change(new_mode):
+        prevBrightness = led_controller.brightness
+        led_controller.brightness = 100
+        if new_mode == PFD_MODE:
+            led_controller.start_flash(30, 5)
+        else:
+            led_controller.start_flash(60, 5)
+        led_controller.brightness = prevBrightness
+    mode_manager = ModeManager()
+    mode_manager.register_mode_change_callback(on_mode_change)
     # Initialize handlers
     mcp_handler = MCP23017Handler(i2c)
-    button_handler = ButtonHandler(mode_manager, led_controller)
+    button_handler = ButtonHandler(mode_manager)
     encoder_handler = EncoderHandler(mode_manager)
     led_controller.enabled = True
     led_controller.brightness = 15
@@ -161,14 +171,9 @@ def main():
     # Setup interrupts for direct encoders (zero missed detents)
     encoder_handler.setup_interrupts(encoder_pins)
     
-    # Setup mode manager and LED controller
-    mode_manager = ModeManager()
-    button_handler.mode_manager = mode_manager
-    encoder_handler.mode_manager = mode_manager
-    led_controller = LEDController()
-    led_controller.enabled = True
-    led_controller.brightness = 15
-    led_controller.start_breathing()
+    # (REMOVED DUPLICATE INITIALIZATION)
+    # The correct mode_manager and led_controller are already initialized above.
+    # Remove this duplicate block to ensure callbacks work as intended.
     
     # Initialize state variables
     is_sim_connected = False
@@ -201,8 +206,10 @@ def main():
         
         # Update LED (every 10ms)
         if time.ticks_diff(current_time, last_led_update) >= LED_UPDATE_INTERVAL:
-            if not is_sim_connected or not is_master_switch_on:
-                led_controller.breathe()
+            led_controller.update_flash(current_time)
+            if not led_controller._flash_active:
+                if not is_sim_connected or not is_master_switch_on:
+                    led_controller.breathe()
             last_led_update = current_time
         
         # Process buffered encoder events (interrupt-driven - highest priority)

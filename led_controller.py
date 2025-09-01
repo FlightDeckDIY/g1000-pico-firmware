@@ -18,9 +18,39 @@ class LEDController:
         self.pwm.freq(1000)  # 1kHz PWM frequency
 
         self.last_update = time.ticks_ms()
+        self._breathing = False
+        # Flash state
+        self._flash_active = False
+        self._flash_count = 0
+        self._flash_total = 0
+        self._flash_on = False
+        self._flash_next_time = 0
+        self._flash_duration_ms = 0
 
         self.update()
-    
+
+    def start_flash(self, duration_ms=30, number_of_flashes=5):
+        self._flash_active = True
+        self._flash_count = 0
+        self._flash_total = number_of_flashes * 2  # on/off cycles
+        self._flash_on = False
+        self._flash_duration_ms = duration_ms
+        self._flash_next_time = time.ticks_ms()
+        self._breathing = False  # Suppress breathing during flash
+
+    def update_flash(self, now=None):
+        if not self._flash_active:
+            return
+        now = now if now is not None else time.ticks_ms()
+        if time.ticks_diff(now, self._flash_next_time) >= 0:
+            self._flash_on = not self._flash_on
+            self.enabled = self._flash_on
+            self._flash_count += 1
+            self._flash_next_time = time.ticks_add(now, self._flash_duration_ms)
+            if self._flash_count >= self._flash_total:
+                self._flash_active = False
+                self.enabled = True
+
     @property
     def brightness(self):
         """Get the current brightness (0-100)."""

@@ -2,6 +2,7 @@
 
 import machine
 import ujson
+import os
 
 # Flash storage configuration
 FLASH_STORAGE_FILE = '/flash/mode.json'
@@ -14,6 +15,10 @@ MFD_MODE = 1
 class ModeManager:
     def __init__(self):
         self.mode = self.load_mode_from_flash()
+        self._mode_change_callbacks = []
+
+    def register_mode_change_callback(self, callback):
+        self._mode_change_callbacks.append(callback)
 
     def load_mode_from_flash(self):
         # Load mode from flash storage
@@ -25,7 +30,6 @@ class ModeManager:
 
     def save_mode_to_flash(self):
         # Save current mode to flash storage
-        import os
         
         # Ensure the directory exists
         flash_dir = '/flash'
@@ -47,6 +51,8 @@ class ModeManager:
             self.mode = new_mode
             self.save_mode_to_flash()
             print(f"Mode changed to: {'PFD' if self.mode == PFD_MODE else 'MFD'}")
+            for cb in self._mode_change_callbacks:
+                cb(self.mode)
 
 
 def init():

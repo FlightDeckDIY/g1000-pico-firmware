@@ -5,11 +5,10 @@ from config import *
 from mode_manager import PFD_MODE, MFD_MODE
 
 class ButtonHandler:
-    def __init__(self, mode_manager=None, led_controller=None):
+    def __init__(self, mode_manager=None):
         # Button state tracking for long press detection
         self.mode_manager = mode_manager
         self.button_states = {}
-        self.led_controller = led_controller
         
         # Track last repeat time for map direction buttons
         self.map_direction_repeat_times = {
@@ -230,5 +229,3 @@ class ButtonHandler:
                 mode_manager.change_mode(MFD_MODE)
             else:
                 mode_manager.change_mode(PFD_MODE)
-            if self.led_controller:
-                self.led_controller.flash()
