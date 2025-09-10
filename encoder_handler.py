@@ -195,6 +195,11 @@ class EncoderHandler:
         if transition_key in self.quadrature_table:
             direction, is_valid, step = self.quadrature_table[transition_key]
             
+            # Only allow speed > 1 for HDG and CRS/BARO encoders
+            speed_sensitive_encoders = [
+                'HDG_BUG', 'CRS_BARO_MINOR', 'CRS_BARO_MAJOR'
+            ]
+            
             if is_valid and direction != 0:  # Valid transition with movement
                 # Update sequence tracking
                 if step == 1:  # Starting new sequence
@@ -211,7 +216,11 @@ class EncoderHandler:
                     if step == 1:
                         # Immediate direction change detection - generate detent event
                         time_diff_us = time.ticks_diff(current_time, state['last_detent_time'])
-                        speed = self._calculate_speed(time_diff_us)
+                        # Only allow speed > 1 for HDG and CRS/BARO encoders
+                        if encoder_name in speed_sensitive_encoders:
+                            speed = self._calculate_speed(time_diff_us)
+                        else:
+                            speed = 1
                         
                         state['last_direction'] = direction
                         state['last_speed'] = speed
@@ -244,7 +253,11 @@ class EncoderHandler:
                 if detent_detected:
                     # Calculate speed based on time between detents
                     time_diff_us = time.ticks_diff(current_time, state['last_detent_time'])
-                    speed = self._calculate_speed(time_diff_us)
+                    # Only allow speed > 1 for HDG and CRS/BARO encoders
+                    if encoder_name in speed_sensitive_encoders:
+                        speed = self._calculate_speed(time_diff_us)
+                    else:
+                        speed = 1
                     
                     # Update state
                     state['last_direction'] = direction
