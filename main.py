@@ -65,24 +65,24 @@ def handle_usb_command(command):
             try:
                 if value == "on":
                     led_controller.enabled = True
-                    print("LED:ON")
+                    # print("LED:ON")
                 elif value == "off":
                     led_controller.enabled = False
-                    print("LED:OFF")
+                    # print("LED:OFF")
                 elif value == "flash":
                     led_controller.flash()
-                    print("LED:FLASH")
+                    # print("LED:FLASH")
                 elif value == "breathe":
                     led_controller.start_breathing()
-                    print("LED:BREATHE")
+                    # print("LED:BREATHE")
                 elif value == "steady":
                     led_controller.stop_breathing()
-                    print("LED:STEADY")
+                    # print("LED:STEADY")
                 else:
                     try:
                         brightness = max(0, min(100, int(value)))
                         led_controller.brightness = brightness
-                        print(f"LED:{brightness}%")
+                        # print(f"LED:{brightness}%")
                     except ValueError:
                         print("ERROR:Invalid brightness value")
             except Exception as e:
@@ -90,7 +90,7 @@ def handle_usb_command(command):
 
         elif command.startswith("electricalMaster:") and led_controller is not None:
             value = command[17:].lower()
-            print(f"value", value)
+            # print(f"value", value)
             try:
                 if value == "off":
                     led_controller.start_breathing()
@@ -120,7 +120,8 @@ def handle_usb_command(command):
             else:
                 print("ERROR:Encoder handler not initialized")
         else:
-            print(f"UNKNOWN:{command}")
+            # print(f"UNKNOWN:{command}")
+            pass
             
     except Exception as e:
         print(f"CMD_HANDLER_ERROR:{e}")
