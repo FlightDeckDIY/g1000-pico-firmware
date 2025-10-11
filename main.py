@@ -65,24 +65,24 @@ def handle_usb_command(command):
             try:
                 if value == "on":
                     led_controller.enabled = True
-                    print("LED:ON")
+                    # print("LED:ON")
                 elif value == "off":
                     led_controller.enabled = False
-                    print("LED:OFF")
+                    # print("LED:OFF")
                 elif value == "flash":
                     led_controller.flash()
-                    print("LED:FLASH")
+                    # print("LED:FLASH")
                 elif value == "breathe":
                     led_controller.start_breathing()
-                    print("LED:BREATHE")
+                    # print("LED:BREATHE")
                 elif value == "steady":
                     led_controller.stop_breathing()
-                    print("LED:STEADY")
+                    # print("LED:STEADY")
                 else:
                     try:
                         brightness = max(0, min(100, int(value)))
                         led_controller.brightness = brightness
-                        print(f"LED:{brightness}%")
+                        # print(f"LED:{brightness}%")
                     except ValueError:
                         print("ERROR:Invalid brightness value")
             except Exception as e:
@@ -157,7 +157,7 @@ def main():
     setup_mcu_devices()
     if not mcp_handler.setup_devices():
         print("Failed to initialize MCP23017 devices")
-        return
+        pass
     
     # Initialize encoder states for MCP encoders with detent types
     from config import MCP_ENCODER_TYPES
