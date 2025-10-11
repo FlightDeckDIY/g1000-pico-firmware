@@ -90,7 +90,7 @@ def handle_usb_command(command):
 
         elif command.startswith("electricalMaster:") and led_controller is not None:
             value = command[17:].lower()
-            print(f"value", value)
+            # print(f"value", value)
             try:
                 if value == "off":
                     led_controller.start_breathing()
@@ -120,7 +120,8 @@ def handle_usb_command(command):
             else:
                 print("ERROR:Encoder handler not initialized")
         else:
-            print(f"UNKNOWN:{command}")
+            # print(f"UNKNOWN:{command}")
+            pass
             
     except Exception as e:
         print(f"CMD_HANDLER_ERROR:{e}")
