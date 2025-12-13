@@ -6,8 +6,9 @@ from config import *
 from mode_manager import PFD_MODE, MFD_MODE
 
 class EncoderHandler:
-    def __init__(self, mode_manager=None):
+    def __init__(self, mode_manager=None, led_controller=None):
         self.mode_manager = mode_manager
+        self.led_controller = led_controller
         # Circular buffer for encoder events (prevents data loss)
         self.encoder_buffer = []
         self.max_buffer_size = 200
@@ -230,6 +231,7 @@ class EncoderHandler:
                         direction_str = "CW" if direction > 0 else "CCW"
                         mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                         print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
+                        self._handle_encoder_action(encoder_name, direction, speed)
                         
                         state['last_state'] = (current_a, current_b)
                         return True, direction, speed
@@ -274,6 +276,7 @@ class EncoderHandler:
                     direction_str = "CW" if direction > 0 else "CCW"
                     mode_str = 'PFD' if hasattr(self, 'mode_manager') and self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                     print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
+                    self._handle_encoder_action(encoder_name, direction, speed)
                     
                     # Update last state after successful detent
                     state['last_state'] = (current_a, current_b)
@@ -304,6 +307,14 @@ class EncoderHandler:
             return 2
         else:
             return 1               # >= 120ms = slow
+
+    def _handle_encoder_action(self, encoder_name, direction, speed):
+        """Trigger any side effects tied to encoder detents."""
+        if encoder_name == "NAV_VOL" and self.led_controller:
+            delta = NAV_VOL_BRIGHTNESS_STEP * direction
+            new_brightness = self.led_controller.adjust_brightness(delta)
+            direction_str = "UP" if direction > 0 else "DOWN"
+            print(f"EVENT::BACKLIGHT:{encoder_name}:{direction_str}:{new_brightness}")
 
     def process_buffered_events(self):
         """Process all buffered encoder events from interrupts."""

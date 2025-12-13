@@ -66,6 +66,13 @@ class LEDController:
         """Set the brightness (0-100)."""
         self._brightness = max(0, min(100, int(value)))
         self.update()
+
+    def adjust_brightness(self, delta):
+        """Increment brightness by delta percent while staying within 0-100."""
+        target = self._brightness + int(delta)
+        self._brightness = max(0, min(100, target))
+        self.update()
+        return self._brightness
     
     @property
     def enabled(self):

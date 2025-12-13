@@ -146,7 +146,7 @@ def main():
     # Initialize handlers
     mcp_handler = MCP23017Handler(i2c)
     button_handler = ButtonHandler(mode_manager)
-    encoder_handler = EncoderHandler(mode_manager)
+    encoder_handler = EncoderHandler(mode_manager, led_controller)
     led_controller.enabled = True
     led_controller.brightness = 15
     led_controller.start_breathing()
