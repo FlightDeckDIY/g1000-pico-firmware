@@ -137,13 +137,10 @@ def main():
     led_controller = LEDController()
     # Register LED flash on mode change
     def on_mode_change(new_mode):
-        prevBrightness = led_controller.brightness
-        led_controller.brightness = 100
         if new_mode == PFD_MODE:
             led_controller.start_flash(30, 5)
         else:
             led_controller.start_flash(60, 5)
-        led_controller.brightness = prevBrightness
     mode_manager = ModeManager()
     mode_manager.register_mode_change_callback(on_mode_change)
     # Initialize handlers
