@@ -2,7 +2,7 @@
 
 # LED Configuration
 LED_BACKLIGHT = 21
-NAV_VOL_BRIGHTNESS_STEP = 2  # Percent per detent when adjusting backlight manually
+NAV_VOL_BRIGHTNESS_STEP = 5  # Percent per detent when adjusting backlight manually
 
 # MCU Button Definitions
 BUTTONS = [
