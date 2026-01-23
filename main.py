@@ -5,6 +5,10 @@ import machine
 from machine import I2C, Pin
 from binascii import hexlify
 
+# Transport selection: default to CDC serial (existing behavior). Set
+# this to True in a HID-capable build when hid_transport is wired up.
+USE_HID_TRANSPORT = False
+
 # Import our modular components
 from config import *
 from led_controller import LEDController
@@ -13,10 +17,14 @@ from usb_comm import handle_serial_commands, usb_handler
 from mcp23017_handler import MCP23017Handler
 from button_handler import ButtonHandler
 from encoder_handler import EncoderHandler
+from command_router import CommandRouter
 
 # Pre-initialize Pin objects for faster access
 button_pins = {}
 encoder_pins = {}
+
+# Global command router instance (initialized in main())
+command_router = None
 
 def setup_mcu_devices():
     """Initialize MCU pins and store references for fast access."""
@@ -33,102 +41,71 @@ def setup_mcu_devices():
         }
 
 def handle_usb_command(command):
-    """Handle incoming USB commands - non-blocking implementation."""
-    global mode_manager, led_controller, is_sim_connected
+    """Handle incoming USB commands via the protocol/command router.
+
+    This function now uses the text protocol adapter to decode the
+    incoming ASCII command into a message, then routes it through the
+    CommandRouter, and finally prints any text responses to preserve
+    existing CDC behavior.
+    """
+    global mode_manager, led_controller, is_sim_connected, command_router
+
+    from protocol_text import decode_text_command, encode_text_responses
+    from protocol_ids import (
+        MSG_SIM_STATUS_UPDATE,
+        MSG_ENCODER_STATS_RESPONSE,
+    )
 
     try:
-        if command == "deviceInfo":
-            id_hex = hexlify(machine.unique_id()).decode('utf-8')
-            print(f"DEVICE ID: {id_hex}")
-            print(f"Type: FDD G1P Rev 1 | Mode: {'PFD' if mode_manager.mode == PFD_MODE else 'MFD'}")
-            print("Firmware version: 0.1.1\n")
+        # Decode the textual command into a high-level message.
+        msg = decode_text_command(command)
+        if msg is None:
+            # Unknown/ignored command – preserve existing behavior of
+            # doing nothing.
+            return
 
-        elif command == "reset":
-            print("RESETTING...")
-            # Non-blocking reset - schedule for next loop iteration
-            global reset_requested
-            reset_requested = True
+        # For simStatus updates, we still want to emit a
+        # SIM_CONNECTED:<bool> line for compatibility. We handle that
+        # after routing.
+        is_sim_status_update = (msg.get("type") == MSG_SIM_STATUS_UPDATE)
 
-        elif command.startswith("simStatus:"):
-            value = command[10:].strip().lower()
-            is_sim_connected = value == "connected"
-            if led_controller:
-                if is_sim_connected:
-                    led_controller.stop_breathing()
-                    led_controller.brightness = 0
-                else:
-                    led_controller.start_breathing()
-            print(f"SIM_CONNECTED:{is_sim_connected}")
+        # Route the message through the command router.
+        if command_router is None:
+            # Safety fallback: if router isn't initialized, just ignore.
+            return
 
-        elif command.lower().startswith("led:") and led_controller is not None:
-            value = command[4:].lower()
-            try:
-                if value == "on":
-                    led_controller.enabled = True
-                    # print("LED:ON")
-                elif value == "off":
-                    led_controller.enabled = False
-                    # print("LED:OFF")
-                elif value == "flash":
-                    led_controller.flash()
-                    # print("LED:FLASH")
-                elif value == "breathe":
-                    led_controller.start_breathing()
-                    # print("LED:BREATHE")
-                elif value == "steady":
-                    led_controller.stop_breathing()
-                    # print("LED:STEADY")
-                else:
-                    try:
-                        brightness = max(0, min(100, int(value)))
-                        led_controller.brightness = brightness
-                        # print(f"LED:{brightness}%")
-                    except ValueError:
-                        print("ERROR:Invalid brightness value")
-            except Exception as e:
-                print(f"LED_ERROR:{e}")
+        responses = command_router.handle_message(msg) or []
 
-        elif command.startswith("electricalMaster:") and led_controller is not None:
-            value = command[17:].lower()
-            # print(f"value", value)
-            try:
-                if value == "off":
-                    led_controller.start_breathing()
-                elif value == "on":
-                    led_controller.stop_breathing()
-            except Exception as e:
-                print(f"ELECTRICAL_MASTER_ERROR:{e}")
+        # Format any structured responses (e.g., deviceInfo,
+        # encoderStats) back into text lines.
+        lines = encode_text_responses(responses, mode_manager=mode_manager)
+        for line in lines:
+            print(line)
 
-        elif command.lower() == "encoderstats":
-            # Get encoder diagnostic information
-            global encoder_handler
+        # Special-case behaviors that previously printed directly in
+        # handle_usb_command:
+        if is_sim_status_update:
+            # The router callback updates is_sim_connected and LED
+            # state; we only need to mirror the SIM_CONNECTED line.
+            print("SIM_CONNECTED:{}".format(is_sim_connected))
+
+        # For encoder stats reset, we previously printed a static line.
+        # The host triggers that via the "resetstats" command.
+        if command.strip().lower() == "resetstats":
+            # If encoder_handler exists, the router already reset stats.
+            # We just mirror the confirmation text.
+            from __main__ import encoder_handler  # avoid circular import at top
             if encoder_handler:
-                stats = encoder_handler.get_encoder_stats()
-                print(f"ENCODER_STATS:")
-                print(f"  Buffer: {stats['buffer_size']}/{encoder_handler.max_buffer_size}")
-                print(f"  Overflows: {stats['buffer_overflows']}")
-                for name, enc_stats in stats['encoders'].items():
-                    print(f"  {name}: detents={enc_stats['total_detents']}, invalid={enc_stats['invalid_transitions']}, speed={enc_stats['last_speed']}")
-            else:
-                print("ERROR:Encoder handler not initialized")
-
-        elif command.lower() == "resetstats":
-            # Reset encoder diagnostic counters
-            if encoder_handler:
-                encoder_handler.reset_stats()
                 print("ENCODER_STATS:RESET")
             else:
                 print("ERROR:Encoder handler not initialized")
-        else:
-            # print(f"UNKNOWN:{command}")
-            pass
 
     except Exception as e:
-        print(f"CMD_HANDLER_ERROR:{e}")
+        print("CMD_HANDLER_ERROR:{}".format(e))
 
 def main():
     """Main application loop - optimized and non-blocking."""
-    global mode_manager, led_controller, is_sim_connected, reset_requested, encoder_handler
+    global mode_manager, led_controller, is_sim_connected, reset_requested, encoder_handler, command_router
 
     # Initialize I2C
     i2c = I2C(BUS_ID, scl=Pin(SCL), sda=Pin(SDA), freq=FREQ)
@@ -178,6 +155,34 @@ def main():
     is_master_switch_on = False
     reset_requested = False
 
+    # Create callbacks for CommandRouter so it can update
+    # connection/reset state without touching globals directly.
+    def set_sim_connected(connected):
+        nonlocal is_sim_connected
+        is_sim_connected = connected
+        # Mirror previous LED behavior for simStatus:
+        if led_controller:
+            if is_sim_connected:
+                led_controller.stop_breathing()
+                led_controller.brightness = 0
+            else:
+                led_controller.start_breathing()
+
+    def request_reset():
+        nonlocal reset_requested
+        print("RESETTING...")
+        reset_requested = True
+
+    # Initialize command router
+    command_router = CommandRouter(
+        mode_manager=mode_manager,
+        led_controller=led_controller,
+        encoder_handler=encoder_handler,
+        set_sim_connected_cb=set_sim_connected,
+        request_reset_cb=request_reset,
+        firmware_version="0.1.1",
+    )
+
     # Timing variables
     last_mcp_check = time.ticks_ms()
     last_button_check = time.ticks_ms()
@@ -185,8 +190,14 @@ def main():
     last_usb_check = time.ticks_ms()
     last_led_update = time.ticks_ms()
 
-    # Set up USB command handler
-    usb_handler.set_command_callback(handle_usb_command)
+    # Set up transport: CDC (existing) or HID (new). For now, default to
+    # CDC so behavior is unchanged until a HID-capable build is ready.
+    hid_transport = None
+    if USE_HID_TRANSPORT:
+        from hid_transport import HIDTransport
+        hid_transport = HIDTransport(command_router)
+    else:
+        usb_handler.set_command_callback(handle_usb_command)
 
     # Main loop
     while True:
@@ -197,10 +208,13 @@ def main():
             time.sleep_ms(100)  # Brief delay for cleanup
             machine.reset()
 
-        # Process USB communication (every 5ms)
+        # Process USB/HID communication (every 5ms)
         if time.ticks_diff(current_time, last_usb_check) >= USB_CHECK_INTERVAL:
             last_usb_check = current_time
-            handle_serial_commands()
+            if USE_HID_TRANSPORT and hid_transport is not None:
+                hid_transport.poll()
+            else:
+                handle_serial_commands()
 
         # Update LED (every 10ms)
         if time.ticks_diff(current_time, last_led_update) >= LED_UPDATE_INTERVAL:
