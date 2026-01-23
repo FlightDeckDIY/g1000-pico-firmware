@@ -5,15 +5,21 @@ import machine
 from machine import I2C, Pin
 from binascii import hexlify
 
-# Transport selection: default to CDC serial (existing behavior). Set
-# this to True in a HID-capable build when hid_transport is wired up.
-USE_HID_TRANSPORT = False
+# Transport selection: CDC serial vs HID binary protocol.
+# When HID is available (panel_hid is a real interface) and this flag is
+# True, the main loop will exchange messages over HID instead of CDC.
+USE_HID_TRANSPORT = True
 
 # Import our modular components
 from config import *
 from led_controller import LEDController
 from mode_manager import ModeManager, PFD_MODE, MFD_MODE
 from usb_comm import handle_serial_commands, usb_handler
+try:
+    # HID interface singleton. On non-HID builds this is a no-op object.
+    from g1p_hid_runtime import panel_hid
+except ImportError:
+    panel_hid = None
 from mcp23017_handler import MCP23017Handler
 from button_handler import ButtonHandler
 from encoder_handler import EncoderHandler
@@ -190,16 +196,15 @@ def main():
     last_usb_check = time.ticks_ms()
     last_led_update = time.ticks_ms()
 
-    # Set up transport: CDC (existing) or HID (new). For now, default to
-    # CDC so behavior is unchanged until a HID-capable build is ready.
-    hid_transport = None
+    # Set up transport: CDC (existing) or HID (new).
+    # If HID is enabled *and* the panel_hid interface is real, we will
+    # use HID. Otherwise we fall back to CDC serial.
+    hid_transport = None  # kept for backward compatibility, no longer used
     event_sink = None
-    if USE_HID_TRANSPORT:
-        from hid_transport import HIDTransport
-        hid_transport = HIDTransport(command_router)
-        if hid_transport is not None:
-            event_sink = hid_transport.send_message_from_app
-    else:
+
+    use_hid = bool(USE_HID_TRANSPORT and panel_hid is not None)
+
+    if not use_hid:
         usb_handler.set_command_callback(handle_usb_command)
 
     # Provide structured event sink to handlers (no-op if None)
@@ -218,9 +223,12 @@ def main():
         # Process USB/HID communication (every 5ms)
         if time.ticks_diff(current_time, last_usb_check) >= USB_CHECK_INTERVAL:
             last_usb_check = current_time
-            if USE_HID_TRANSPORT and hid_transport is not None:
-                hid_transport.poll()
+            if USE_HID_TRANSPORT and panel_hid is not None:
+                # Decode any pending HID OUT reports and send responses
+                # back as HID IN reports via protocol_binary.
+                panel_hid.process_pending(command_router)
             else:
+                # Legacy CDC serial text protocol.
                 handle_serial_commands()
 
         # Update LED (every 10ms)

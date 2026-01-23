@@ -39,74 +39,20 @@ expose a real HID interface immediately at boot.
 
 try:
     import usb.device
-    from usb.device.hid import HIDInterface
 except ImportError:
     usb = None
 else:
-    # 64-byte vendor-defined HID reports, one Input and one Output
-    # report, sharing Report ID 1. The underlying transport will then
-    # see 64-byte packets where byte 0 is the report ID and the
-    # remaining bytes are payload (this matches how `protocol_binary`
-    # builds its frames).
-    _G1P_REPORT_DESC = (
-        b"\x06\x00\xff"  # Usage Page (Vendor Defined 0xFF00)
-        b"\x09\x01"      # Usage (Vendor Usage 1)
-        b"\xa1\x01"      # Collection (Application)
-        b"\x85\x01"      #   Report ID 1
-        b"\x15\x00"      #   Logical Minimum (0)
-        b"\x26\xff\x00"  #   Logical Maximum (255)
-        b"\x75\x08"      #   Report Size (8 bits)
-        b"\x95\x40"      #   Report Count (64 bytes) - Input
-        b"\x09\x01"      #   Usage (Vendor Usage 1)
-        b"\x81\x00"      #   Input (Data, Array, Absolute)
-        b"\x85\x01"      #   Report ID 1 (Output)
-        b"\x75\x08"      #   Report Size (8 bits)
-        b"\x95\x40"      #   Report Count (64 bytes) - Output
-        b"\x09\x01"      #   Usage (Vendor Usage 1)
-        b"\x91\x00"      #   Output (Data, Array, Absolute)
-        b"\xc0"          # End Collection
-    )
-
-    class G1PPanelHID(HIDInterface):
-        """Simple vendor-defined HID interface for the G1000 panel.
-
-        This defines a single 64-byte IN/OUT report with Report ID 1.
-        Application code can later use `send_report()` and the
-        `on_set_report()` hook to implement the full binary protocol.
-        """
-
-        def __init__(self):
-            super().__init__(
-                _G1P_REPORT_DESC,
-                # Buffer for host->device OUT reports; 64 bytes matches
-                # the report size in the descriptor above.
-                set_report_buf=bytearray(64),
-                # Non-boot, vendor-defined protocol.
-                protocol=0x00,
-                interface_str="G1000 FlightDeck HID",
-            )
-
-        def on_set_report(self, report_data, _report_id, _report_type):
-            """Handle host->device OUT reports.
-
-            For now, this is a placeholder that simply accepts the
-            report. A future step will parse `report_data` using
-            `protocol_binary.decode_report_to_message()` and route it
-            through the CommandRouter.
-            """
-            # Always accept the report.
-            return True
+    # Use the shared HID interface singleton defined in g1p_hid_runtime.
+    from g1p_hid_runtime import panel_hid
 
     # Instantiate and configure the runtime USB device using the
     # high-level usb.device helpers.
     _dev = usb.device.get()
     _dev.active(False)
 
-    _iface = G1PPanelHID()
-
     # builtin_driver=True keeps the underlying CDC REPL/serial active
     # and appends this HID interface to the existing configuration.
-    _dev.config(_iface, builtin_driver=True)
+    _dev.config(panel_hid, builtin_driver=True)
     _dev.active(True)
 
 
