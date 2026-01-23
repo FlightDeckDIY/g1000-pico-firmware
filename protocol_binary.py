@@ -29,7 +29,11 @@ from protocol_ids import (
     MSG_HEARTBEAT,
     MSG_MODE_SET,
     MSG_DEVICE_INFO_RESPONSE,
+    MSG_ENCODER_EVENT,
+    MSG_BUTTON_EVENT,
     MSG_ENCODER_STATS_RESPONSE,
+    MSG_HEARTBEAT_STATUS,
+    MSG_ERROR_REPORT,
     # Enums
     SIM_STATUS_CONNECTED,
     SIM_STATUS_DISCONNECTED,
@@ -40,6 +44,14 @@ from protocol_ids import (
     LED_MODE_STEADY,
     ELECTRICAL_MASTER_OFF,
     ELECTRICAL_MASTER_ON,
+    PANEL_MODE_PFD,
+    PANEL_MODE_MFD,
+    BUTTON_EVENT_PRESS,
+    BUTTON_EVENT_RELEASE,
+    BUTTON_EVENT_LONG_PRESS,
+    ERROR_SEVERITY_INFO,
+    ERROR_SEVERITY_WARNING,
+    ERROR_SEVERITY_ERROR,
 )
 
 
@@ -170,6 +182,70 @@ def encode_message_to_report(message, report_id=REPORT_ID_HOST_TO_DEVICE):
 
         length = idx - 3
 
+    elif msg_type == MSG_ENCODER_EVENT:
+        # Payload:
+        #  encoder_id: uint8
+        #  direction:  int8  (-1, 0, +1 encoded as 0xFF, 0x00, 0x01)
+        #  speed:      uint8
+        #  panel_mode: uint8 (PANEL_MODE_PFD / PANEL_MODE_MFD)
+        encoder_id = int(payload.get("encoder_id", 0)) & 0xFF
+        direction = int(payload.get("direction", 0))
+        if direction < 0:
+            direction_byte = 0xFF
+        elif direction > 0:
+            direction_byte = 0x01
+        else:
+            direction_byte = 0x00
+        speed = int(payload.get("speed", 1)) & 0xFF
+        panel_mode = int(payload.get("panel_mode", PANEL_MODE_PFD)) & 0xFF
+
+        idx = 3
+        buf[idx] = encoder_id; idx += 1
+        buf[idx] = direction_byte; idx += 1
+        buf[idx] = speed; idx += 1
+        buf[idx] = panel_mode; idx += 1
+
+        length = idx - 3
+
+    elif msg_type == MSG_BUTTON_EVENT:
+        # Payload:
+        #  button_id:  uint8
+        #  event_type: uint8 (BUTTON_EVENT_*)
+        #  panel_mode:uint8
+        button_id = int(payload.get("button_id", 0)) & 0xFF
+        event_type = int(payload.get("event_type", BUTTON_EVENT_PRESS)) & 0xFF
+        panel_mode = int(payload.get("panel_mode", PANEL_MODE_PFD)) & 0xFF
+
+        idx = 3
+        buf[idx] = button_id; idx += 1
+        buf[idx] = event_type; idx += 1
+        buf[idx] = panel_mode; idx += 1
+
+        length = idx - 3
+
+    elif msg_type == MSG_HEARTBEAT_STATUS:
+        # Simple echo of last sequence and optional flags
+        seq = int(payload.get("sequence", 0)) & 0xFF
+        flags = int(payload.get("flags", 0)) & 0xFF
+        idx = 3
+        buf[idx] = seq; idx += 1
+        buf[idx] = flags; idx += 1
+        length = idx - 3
+
+    elif msg_type == MSG_ERROR_REPORT:
+        # Minimal error report:
+        #  severity: uint8
+        #  code:     uint8
+        #  detail0:  uint8 (optional extra info)
+        severity = int(payload.get("severity", ERROR_SEVERITY_INFO)) & 0xFF
+        code = int(payload.get("code", 0)) & 0xFF
+        detail0 = int(payload.get("detail0", 0)) & 0xFF
+        idx = 3
+        buf[idx] = severity; idx += 1
+        buf[idx] = code; idx += 1
+        buf[idx] = detail0; idx += 1
+        length = idx - 3
+
     else:
         # Unknown message type – leave payload empty. Caller can decide
         # whether to send or drop.
@@ -290,6 +366,49 @@ def decode_report_to_message(report_bytes):
                 # Per-encoder stats are not encoded here; they can be
                 # requested via a richer mechanism if needed.
                 "encoders": {},
+            })
+
+    elif msg_type == MSG_ENCODER_EVENT:
+        # encoder_id, direction, speed, panel_mode
+        if length >= 4:
+            encoder_id = b[idx]; direction_byte = b[idx+1]; speed = b[idx+2]; panel_mode = b[idx+3]
+            if direction_byte == 0xFF:
+                direction = -1
+            elif direction_byte == 0x01:
+                direction = 1
+            else:
+                direction = 0
+            payload.update({
+                "encoder_id": encoder_id,
+                "direction": direction,
+                "speed": speed,
+                "panel_mode": panel_mode,
+            })
+
+    elif msg_type == MSG_BUTTON_EVENT:
+        if length >= 3:
+            button_id = b[idx]; event_type = b[idx+1]; panel_mode = b[idx+2]
+            payload.update({
+                "button_id": button_id,
+                "event_type": event_type,
+                "panel_mode": panel_mode,
+            })
+
+    elif msg_type == MSG_HEARTBEAT_STATUS:
+        if length >= 2:
+            seq = b[idx]; flags = b[idx+1]
+            payload.update({
+                "sequence": seq,
+                "flags": flags,
+            })
+
+    elif msg_type == MSG_ERROR_REPORT:
+        if length >= 3:
+            severity = b[idx]; code = b[idx+1]; detail0 = b[idx+2]
+            payload.update({
+                "severity": severity,
+                "code": code,
+                "detail0": detail0,
             })
 
     else:

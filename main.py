@@ -193,11 +193,18 @@ def main():
     # Set up transport: CDC (existing) or HID (new). For now, default to
     # CDC so behavior is unchanged until a HID-capable build is ready.
     hid_transport = None
+    event_sink = None
     if USE_HID_TRANSPORT:
         from hid_transport import HIDTransport
         hid_transport = HIDTransport(command_router)
+        if hid_transport is not None:
+            event_sink = hid_transport.send_message_from_app
     else:
         usb_handler.set_command_callback(handle_usb_command)
+
+    # Provide structured event sink to handlers (no-op if None)
+    button_handler.set_event_sink(event_sink)
+    encoder_handler.set_event_sink(event_sink)
 
     # Main loop
     while True:

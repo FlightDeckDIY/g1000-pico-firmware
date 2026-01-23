@@ -4,11 +4,15 @@ import time
 from machine import Pin
 from config import *
 from mode_manager import PFD_MODE, MFD_MODE
+from protocol_ids import ENCODER_IDS, MSG_ENCODER_EVENT, PANEL_MODE_PFD, PANEL_MODE_MFD
 
 class EncoderHandler:
-    def __init__(self, mode_manager=None, led_controller=None):
+    def __init__(self, mode_manager=None, led_controller=None, event_sink=None):
         self.mode_manager = mode_manager
         self.led_controller = led_controller
+        # Optional callback for structured events (e.g., HID messages)
+        # Signature: event_sink(message_dict)
+        self.event_sink = event_sink
         # Circular buffer for encoder events (prevents data loss)
         self.encoder_buffer = []
         self.max_buffer_size = 200
@@ -102,6 +106,10 @@ class EncoderHandler:
                 'pin_b_pin': None,        # Pin object for interrupt setup
                 'detent_type': detent_type # Single or dual detent encoder
             }
+
+    def set_event_sink(self, event_sink):
+        """Set or update the structured event sink callback."""
+        self.event_sink = event_sink
 
     def initialize_mcp_encoders(self, encoder_pairs):
         """Initialize encoder states for MCP23017 encoders."""
@@ -232,6 +240,7 @@ class EncoderHandler:
                         mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                         print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
                         self._handle_encoder_action(encoder_name, direction, speed)
+                        self._emit_encoder_event(encoder_name, direction, speed)
                         
                         state['last_state'] = (current_a, current_b)
                         return True, direction, speed
@@ -277,6 +286,7 @@ class EncoderHandler:
                     mode_str = 'PFD' if hasattr(self, 'mode_manager') and self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                     print(f"EVENT::ROTARY:{mode_str}:{encoder_name}:{direction_str}:{speed}")
                     self._handle_encoder_action(encoder_name, direction, speed)
+                    self._emit_encoder_event(encoder_name, direction, speed)
                     
                     # Update last state after successful detent
                     state['last_state'] = (current_a, current_b)
@@ -315,6 +325,36 @@ class EncoderHandler:
             new_brightness = self.led_controller.adjust_brightness(delta)
             direction_str = "UP" if direction > 0 else "DOWN"
             print(f"EVENT::BACKLIGHT:{encoder_name}:{direction_str}:{new_brightness}")
+
+    def _emit_encoder_event(self, encoder_name, direction, speed):
+        """Emit a structured encoder event via the event sink, if any."""
+        if self.event_sink is None:
+            return
+
+        encoder_id = ENCODER_IDS.get(encoder_name)
+        if encoder_id is None:
+            return
+
+        if self.mode_manager and self.mode_manager.mode == PFD_MODE:
+            panel_mode = PANEL_MODE_PFD
+        else:
+            panel_mode = PANEL_MODE_MFD
+
+        message = {
+            "type": MSG_ENCODER_EVENT,
+            "payload": {
+                "encoder_id": encoder_id,
+                "direction": direction,
+                "speed": speed,
+                "panel_mode": panel_mode,
+            },
+        }
+
+        try:
+            self.event_sink(message)
+        except Exception:
+            # Never let transport issues break encoder processing.
+            return
 
     def process_buffered_events(self):
         """Process all buffered encoder events from interrupts."""

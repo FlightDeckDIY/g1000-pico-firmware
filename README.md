@@ -31,6 +31,8 @@ After flashing, you can interact with the board using Thonny, rshell, mpremote, 
 - `led_controller.py` — LED control helpers.
 - `mcp23017_handler.py` — I/O expander (MCP23017) helper code — used for external I/O expanders in the hardware.
 - `usb_comm.py` — USB communication helpers.
+- `protocol_ids.py`, `protocol_binary.py` — USB HID protocol IDs and binary report encoding/decoding.
+- `hid_transport.py` — USB HID transport (device side), used when HID is enabled.
 
 If you add files or refactor, update this section so new contributors can find important bits quickly.
 
@@ -57,6 +59,12 @@ Recommended follow-ups (issues or pull requests):
 
 - If the board does not appear as a mass storage device when entering bootloader mode, check the board's BOOTSEL procedure and cable.
 - If a pin does not behave as expected, verify you are using the correct GPIO number and that the UF2 you flashed is the custom RP2350B build included here.
+
+### USB HID transport notes
+
+- By default the firmware uses the existing CDC text protocol. The HID transport can be enabled in `main.py` by setting `USE_HID_TRANSPORT = True` in a HID-capable build.
+- When HID is enabled, host→device commands are sent as 64-byte HID OUT reports encoded with `protocol_binary.encode_message_to_report`, and device→host responses and events (encoders/buttons) are sent as HID IN reports.
+- See `protocol_ids.py` for message IDs and `protocol_binary.py` for the exact report layout.
 
 ## License & Contributing
 

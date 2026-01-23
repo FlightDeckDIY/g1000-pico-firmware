@@ -3,11 +3,22 @@
 import time
 from config import *
 from mode_manager import PFD_MODE, MFD_MODE
+from protocol_ids import (
+    BUTTON_IDS,
+    MSG_BUTTON_EVENT,
+    BUTTON_EVENT_PRESS,
+    BUTTON_EVENT_RELEASE,
+    BUTTON_EVENT_LONG_PRESS,
+    PANEL_MODE_PFD,
+    PANEL_MODE_MFD,
+)
 
 class ButtonHandler:
-    def __init__(self, mode_manager=None):
+    def __init__(self, mode_manager=None, event_sink=None):
         # Button state tracking for long press detection
         self.mode_manager = mode_manager
+        # Optional callback for structured events (e.g., HID messages)
+        self.event_sink = event_sink
         self.button_states = {}
         
         # Track last repeat time for map direction buttons
@@ -54,6 +65,10 @@ class ButtonHandler:
             'direction_active': False,
             'last_direction_time': 0
         }
+
+    def set_event_sink(self, event_sink):
+        """Set or update the structured event sink callback."""
+        self.event_sink = event_sink
 
     def is_map_direction_button(self, pin_name):
         """Check if a pin is a MAP direction button."""
@@ -111,6 +126,7 @@ class ButtonHandler:
             # Timeout expired, this is a genuine MAP_PUSH press
             mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
             print(f"EVENT::BUTTON:{mode_str}:MAP_PUSH:PRESS")
+            self._emit_button_event("MAP_PUSH", BUTTON_EVENT_PRESS)
             self.map_push_state['pending_press'] = False
         
         # Check for pending release timeout
@@ -119,6 +135,7 @@ class ButtonHandler:
             # Timeout expired, this is a genuine MAP_PUSH release
             mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
             print(f"EVENT::BUTTON:{mode_str}:MAP_PUSH:RELEASE")
+            self._emit_button_event("MAP_PUSH", BUTTON_EVENT_RELEASE)
             self.map_push_state['pending_release'] = False
 
     def process_direct_buttons(self, current_time, button_pins):
@@ -136,10 +153,12 @@ class ButtonHandler:
                     button_state['press_time'] = current_time
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:PRESS")
+                    self._emit_button_event(button_name, BUTTON_EVENT_PRESS)
                 else:  # Button was just released
                     button_state['hold_reported'] = False
                     mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:RELEASE")
+                    self._emit_button_event(button_name, BUTTON_EVENT_RELEASE)
                 # Update the stored state
                 button_state['is_pressed'] = is_pressed
             # Check for hold (only if currently pressed and hold not yet reported)
@@ -170,6 +189,7 @@ class ButtonHandler:
                     if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL_MS:
                         mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                         print(f"EVENT::BUTTON:{mode_str}:{button_name}:PRESS")
+                        self._emit_button_event(button_name, BUTTON_EVENT_PRESS)
                         self.map_direction_repeat_times[button_name] = current_time
 
     def handle_pin_change(self, pin_name, is_pressed, current_time, dev_name=None, port=None, bit=None, old_val=None, new_val=None):
@@ -200,9 +220,11 @@ class ButtonHandler:
                 if is_pressed:
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{pin_name}:PRESS")
+                    self._emit_button_event(pin_name, BUTTON_EVENT_PRESS)
                 else:
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{pin_name}:RELEASE")
+                    self._emit_button_event(pin_name, BUTTON_EVENT_RELEASE)
         
         return True  # Allow normal processing
 
@@ -218,6 +240,7 @@ class ButtonHandler:
                 state['hold_reported'] = True
                 mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                 print(f"EVENT::BUTTON:{mode_str}:{button_name}:LONG_PRESS")
+                self._emit_button_event(button_name, BUTTON_EVENT_LONG_PRESS)
                 # Handle specific long press actions
                 self._handle_long_press(button_name, mode_manager)
 
@@ -229,3 +252,32 @@ class ButtonHandler:
                 mode_manager.change_mode(MFD_MODE)
             else:
                 mode_manager.change_mode(PFD_MODE)
+
+    def _emit_button_event(self, button_name, event_type):
+        """Emit a structured button event via the event sink, if any."""
+        if self.event_sink is None:
+            return
+
+        button_id = BUTTON_IDS.get(button_name)
+        if button_id is None:
+            return
+
+        if self.mode_manager and self.mode_manager.mode == PFD_MODE:
+            panel_mode = PANEL_MODE_PFD
+        else:
+            panel_mode = PANEL_MODE_MFD
+
+        message = {
+            "type": MSG_BUTTON_EVENT,
+            "payload": {
+                "button_id": button_id,
+                "event_type": event_type,
+                "panel_mode": panel_mode,
+            },
+        }
+
+        try:
+            self.event_sink(message)
+        except Exception:
+            # Never let transport issues break button processing.
+            return
