@@ -38,6 +38,11 @@ If you add files or refactor, update this section so new contributors can find i
 ## Usage
 
 - After booting, `main.py` will run automatically if present on the board's filesystem. Use Thonny or `mpremote` to open a REPL, inspect `config.py`, or run helper scripts interactively.
+- Use `./upload.sh` to copy the firmware Python files to the board over `mpremote`.
+- `./upload.sh` will auto-detect the target device from `mpremote devs` when exactly one `usbmodem` device is present.
+- `./upload.sh 12101` targets `/dev/tty.usbmodem12101`.
+- `./upload.sh /dev/tty.usbmodem12101` uses the full device path directly.
+- `./upload.sh --help` shows the available options.
 - Example to toggle a pin in the REPL:
 
 ```py
