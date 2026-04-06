@@ -284,7 +284,7 @@ class EncoderHandler:
         else:
             # Invalid transition - log it
             state['invalid_transitions'] += 1
-            print(f"Invalid encoder transition {encoder_name}: {prev_a}{prev_b} -> {current_a}{current_b}")
+            # print(f" encoder transition {encoder_name}: {prev_a}{prev_b} -> {current_a}{current_b}")
         
         # Update last state
         state['last_state'] = (current_a, current_b)

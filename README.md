@@ -4,7 +4,8 @@ This repository contains MicroPython firmware and helper scripts for the FlightD
 
 ## Included UF2 MicroPython build
 
-- File: `fdd_g1p_rp2350b-firmware.uf2`
+- File: `fdd_g1000_1229251426.uf2`
+- Naming convention: `[company]_[product]_[build date].uf2` (e.g., `fdd_g1000_1229251426.uf2`)
 
 This is a custom MicroPython UF2 built for the RP2350B variant of the RP2 family. It exposes all 48 GPIOs (GPIO0 through GPIO47) to MicroPython so your project can use the full set of pins the RP2350B provides.
 
@@ -16,7 +17,7 @@ Notes and assumptions:
 
 1. Put your RP2350B board into BOOTSEL / bootloader mode (usually by holding the BOOTSEL button while connecting USB — board-specific).
 2. The board should mount as a USB mass storage device on your computer.
-3. Copy `fdd_g1p_rp2350b-firmware.uf2` to the mounted storage. The board will flash and reboot into MicroPython.
+3. Copy `fdd_g1000_1229251426.uf2` to the mounted storage. The board will flash and reboot into MicroPython.
 
 After flashing, you can interact with the board using Thonny, rshell, mpremote, or any MicroPython tooling.
 
