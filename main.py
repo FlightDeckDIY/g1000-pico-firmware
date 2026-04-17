@@ -34,7 +34,7 @@ def setup_mcu_devices():
 
 def handle_usb_command(command):
     """Handle incoming USB commands - non-blocking implementation."""
-    global mode_manager, led_controller, is_sim_connected
+    global mode_manager, led_controller, is_sim_connected, has_received_sim_status
 
     try:
         if command == "deviceInfo":
@@ -51,6 +51,7 @@ def handle_usb_command(command):
 
         elif command.startswith("simStatus:"):
             value = command[10:].strip().lower()
+            has_received_sim_status = True
             is_sim_connected = value == "connected"
             if led_controller:
                 if is_sim_connected:
@@ -128,7 +129,7 @@ def handle_usb_command(command):
 
 def main():
     """Main application loop - optimized and non-blocking."""
-    global mode_manager, led_controller, is_sim_connected, reset_requested, encoder_handler
+    global mode_manager, led_controller, is_sim_connected, has_received_sim_status, reset_requested, encoder_handler
 
     # Initialize I2C
     i2c = I2C(BUS_ID, scl=Pin(SCL), sda=Pin(SDA), freq=FREQ)
@@ -145,7 +146,11 @@ def main():
     mode_manager.register_mode_change_callback(on_mode_change)
     # Initialize handlers
     mcp_handler = MCP23017Handler(i2c)
-    button_handler = ButtonHandler(mode_manager)
+    def on_button_event(button_name, action):
+        if button_name == "NAV_VOL_PUSH" and action == "PRESS" and not has_received_sim_status:
+            led_controller.stop_breathing()
+
+    button_handler = ButtonHandler(mode_manager, on_button_event)
     encoder_handler = EncoderHandler(mode_manager, led_controller)
     led_controller.enabled = True
     led_controller.brightness = 15
@@ -175,6 +180,7 @@ def main():
 
     # Initialize state variables
     is_sim_connected = False
+    has_received_sim_status = False
     is_master_switch_on = False
     reset_requested = False
 

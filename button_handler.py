@@ -5,9 +5,10 @@ from config import *
 from mode_manager import PFD_MODE, MFD_MODE
 
 class ButtonHandler:
-    def __init__(self, mode_manager=None):
+    def __init__(self, mode_manager=None, button_event_callback=None):
         # Button state tracking for long press detection
         self.mode_manager = mode_manager
+        self.button_event_callback = button_event_callback
         self.button_states = {}
         
         # Track last repeat time for map direction buttons
@@ -54,6 +55,11 @@ class ButtonHandler:
             'direction_active': False,
             'last_direction_time': 0
         }
+
+    def _notify_button_event(self, button_name, action):
+        """Notify the main loop about local button side effects."""
+        if self.button_event_callback:
+            self.button_event_callback(button_name, action)
 
     def is_map_direction_button(self, pin_name):
         """Check if a pin is a MAP direction button."""
@@ -111,6 +117,7 @@ class ButtonHandler:
             # Timeout expired, this is a genuine MAP_PUSH press
             mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
             print(f"EVENT::BUTTON:{mode_str}:MAP_PUSH:PRESS")
+            self._notify_button_event("MAP_PUSH", "PRESS")
             self.map_push_state['pending_press'] = False
         
         # Check for pending release timeout
@@ -119,6 +126,7 @@ class ButtonHandler:
             # Timeout expired, this is a genuine MAP_PUSH release
             mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
             print(f"EVENT::BUTTON:{mode_str}:MAP_PUSH:RELEASE")
+            self._notify_button_event("MAP_PUSH", "RELEASE")
             self.map_push_state['pending_release'] = False
 
     def process_direct_buttons(self, current_time, button_pins):
@@ -136,10 +144,12 @@ class ButtonHandler:
                     button_state['press_time'] = current_time
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:PRESS")
+                    self._notify_button_event(button_name, "PRESS")
                 else:  # Button was just released
                     button_state['hold_reported'] = False
                     mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:RELEASE")
+                    self._notify_button_event(button_name, "RELEASE")
                 # Update the stored state
                 button_state['is_pressed'] = is_pressed
             # Check for hold (only if currently pressed and hold not yet reported)
@@ -148,6 +158,7 @@ class ButtonHandler:
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:HOLD")
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:HOLD")
+                    self._notify_button_event(button_name, "HOLD")
                     button_state['hold_reported'] = True
 
     def process_mcp_buttons(self, current_time):
@@ -162,6 +173,7 @@ class ButtonHandler:
                     button_state['hold_reported'] = True
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{button_name}:HOLD")
+                    self._notify_button_event(button_name, "HOLD")
             
             # Handle map direction button repeat with initial delay
             if button_name in ['MAP_UP', 'MAP_DOWN', 'MAP_LEFT', 'MAP_RIGHT']:
@@ -170,6 +182,7 @@ class ButtonHandler:
                     if time.ticks_diff(current_time, self.map_direction_repeat_times[button_name]) >= MAP_BUTTON_REPEAT_INTERVAL_MS:
                         mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                         print(f"EVENT::BUTTON:{mode_str}:{button_name}:PRESS")
+                        self._notify_button_event(button_name, "PRESS")
                         self.map_direction_repeat_times[button_name] = current_time
 
     def handle_pin_change(self, pin_name, is_pressed, current_time, dev_name=None, port=None, bit=None, old_val=None, new_val=None):
@@ -200,9 +213,11 @@ class ButtonHandler:
                 if is_pressed:
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{pin_name}:PRESS")
+                    self._notify_button_event(pin_name, "PRESS")
                 else:
                     mode_str = 'PFD' if (self.mode_manager and self.mode_manager.mode == PFD_MODE) else 'MFD'
                     print(f"EVENT::BUTTON:{mode_str}:{pin_name}:RELEASE")
+                    self._notify_button_event(pin_name, "RELEASE")
         
         return True  # Allow normal processing
 
@@ -218,6 +233,7 @@ class ButtonHandler:
                 state['hold_reported'] = True
                 mode_str = 'PFD' if self.mode_manager and self.mode_manager.mode == PFD_MODE else 'MFD'
                 print(f"EVENT::BUTTON:{mode_str}:{button_name}:LONG_PRESS")
+                self._notify_button_event(button_name, "LONG_PRESS")
                 # Handle specific long press actions
                 self._handle_long_press(button_name, mode_manager)
 

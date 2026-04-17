@@ -38,6 +38,7 @@ If you add files or refactor, update this section so new contributors can find i
 ## Usage
 
 - After booting, `main.py` will run automatically if present on the board's filesystem. Use Thonny or `mpremote` to open a REPL, inspect `config.py`, or run helper scripts interactively.
+- Before the first `simStatus:` message arrives, the backlight breathes at startup. Press `NAV_VOL_PUSH` to switch it to steady mode, then turn the `NAV_VOL` encoder to adjust brightness manually.
 - Use `./upload.sh` to copy the firmware Python files to the board over `mpremote`.
 - `./upload.sh` will auto-detect the target device from `mpremote devs` when exactly one `usbmodem` device is present.
 - `./upload.sh 12101` targets `/dev/tty.usbmodem12101`.
